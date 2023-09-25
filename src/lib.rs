@@ -3,6 +3,7 @@ pub mod app_client;
 pub mod consts;
 pub mod data;
 pub mod light_client;
+pub mod light_client_commons;
 pub mod network;
 pub mod proof;
 pub mod rpc;
