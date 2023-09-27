@@ -32,7 +32,10 @@ pub fn verify(
 		pool.execute(move || {
 			let result = proof::verify(&public_parameters, dimensions, &commitment, &cell);
 			if let Err(error) = tx.clone().send((cell.position, result)) {
-				error!(block_num, "Failed to send proof verified message: {error}");
+				error!(
+					"{} {} {error}",
+					block_num, "Failed to send proof verified message"
+				);
 			}
 		});
 	}

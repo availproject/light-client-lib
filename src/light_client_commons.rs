@@ -6,7 +6,7 @@ use crate::consts::{
 	APP_DATA_CF, BLOCK_HEADER_CF, CONFIDENCE_FACTOR_CF, EXPECTED_NETWORK_VERSION, STATE_CF,
 };
 use crate::data::{self, store_last_full_node_ws_in_db};
-use crate::types::{self, Mode, RuntimeConfig, State};
+use crate::types::{self, LibP2PConfig, Mode, RuntimeConfig, SecretKey, State};
 use crate::{
 	api, app_client, light_client, network, rpc, subscriptions, sync_client, sync_finality,
 };
@@ -28,16 +28,18 @@ use tracing_subscriber::{
 	fmt::format::{self, DefaultFields, Format, Full, Json},
 	FmtSubscriber,
 };
+pub static mut STATE: Option<Arc<Mutex<State>>> = None;
+pub static mut DB: Option<Arc<DB>> = None;
 
 #[cfg(feature = "network-analysis")]
 use network::network_analyzer;
 
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
+// #[cfg(not(target_env = "msvc"))]
+// use tikv_jemallocator::Jemalloc;
 
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+// #[cfg(not(target_env = "msvc"))]
+// #[global_allocator]
+// static GLOBAL: Jemalloc = Jemalloc;
 
 /// Light Client for Avail Blockchain
 #[derive(Parser)]
@@ -121,7 +123,6 @@ pub async fn run(
 	}
 
 	let db = init_db(&cfg.avail_path).context("Cannot initialize database")?;
-
 	// If in fat client mode, enable deleting local Kademlia records
 	// This is a fat client memory optimization
 	let kad_remove_local_record = cfg.block_matrix_partition.is_some();
@@ -180,6 +181,13 @@ pub async fn run(
 		}
 	});
 
+	// panic!(
+	// 	"infoooo {}{}{}{}",
+	// 	cfg.dht_parallelization_limit,
+	// 	cfg.kad_record_ttl,
+	// 	cfg.put_batch_size,
+	// 	kad_remove_local_record
+	// );
 	let (network_client, network_event_loop) = network::init(
 		(&cfg).into(),
 		network_stats_sender,
@@ -190,12 +198,27 @@ pub async fn run(
 		id_keys,
 	)
 	.context("Failed to init Network Service")?;
-
+	// panic!(
+	// 	"infoooo {}{}{}{}",
+	// 	cfg.dht_parallelization_limit,
+	// 	cfg.kad_record_ttl,
+	// 	cfg.put_batch_size,
+	// 	kad_remove_local_record
+	// );
 	// Spawn the network task for it to run in the background
 	tokio::spawn(network_event_loop.run());
+	// panic!(
+	// 	"infoooo {}{}{}{}",
+	// 	cfg.dht_parallelization_limit,
+	// 	cfg.kad_record_ttl,
+	// 	cfg.put_batch_size,
+	// 	kad_remove_local_record
+	// );
+	// panic!("Bootstrapping nodes");
 
 	// Start listening on provided port
 	let port = cfg.port;
+
 	info!("Listening on port: {port}");
 
 	// always listen on UDP to prioritize QUIC
@@ -233,13 +256,12 @@ pub async fn run(
 	} else {
 		bootstrap_nodes
 	};
-
 	// wait here for bootstrap to finish
 	info!("Bootstraping the DHT with bootstrap nodes...");
 	network_client.bootstrap(bootstrap_nodes).await?;
 
-	#[cfg(feature = "network-analysis")]
-	tokio::task::spawn(network_analyzer::start_traffic_analyzer(cfg.port, 10));
+	// #[cfg(feature = "network-analysis")]
+	// tokio::task::spawn(network_analyzer::start_traffic_analyzer(cfg.port, 10));
 
 	let pp = Arc::new(kate_recovery::testnet::public_params(1024));
 	let raw_pp = pp.to_raw_var_bytes();
@@ -257,7 +279,7 @@ pub async fn run(
 	.await?;
 
 	store_last_full_node_ws_in_db(db.clone(), node.host.clone())?;
-
+	// panic!("Paniced after ws store");
 	info!("Genesis hash: {:?}", node.genesis_hash);
 	if let Some(stored_genesis_hash) = data::get_genesis_hash(db.clone())? {
 		if !node.genesis_hash.eq(&stored_genesis_hash) {
@@ -351,14 +373,31 @@ pub async fn run(
 		header_receiver: message_rx,
 		error_sender,
 	};
-
-	tokio::task::spawn(light_client::run(
+	let err = tokio::task::spawn(light_client::run(
 		light_client,
+		state.clone(),
 		(&cfg).into(),
 		pp,
 		ot_metrics,
-		state.clone(),
 		lc_channels,
-	));
+	))
+	.await;
+	match err {
+		Ok(_) => panic!("ok"),
+		Err(e) => panic!("{}", e),
+	}
+	// tokio::task::spawn(light_client::run(
+	// 	light_client,
+	// 	(&cfg).into(),
+	// 	pp,
+	// 	ot_metrics,
+	// 	state.clone(),
+	// 	lc_channels,
+	// ));
+
+	// unsafe {
+	// 	STATE = Some(state.clone());
+	// 	DB = Some(db.clone());
+	// }
 	Ok((state, db))
 }

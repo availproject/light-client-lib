@@ -244,7 +244,7 @@ pub async fn connect_to_the_full_node(
 ) -> Result<(avail::Client, Node)> {
 	for full_node_ws in shuffle_full_nodes(full_nodes, last_full_node).iter() {
 		let log_warn = |error| {
-			warn!("Skipping connection to {full_node_ws}: {error}");
+			// error!("Skipping connection to {full_node_ws}: {error}");
 			error
 		};
 

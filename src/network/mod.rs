@@ -5,7 +5,7 @@ use libp2p::{
 	autonat::{self, Behaviour as AutoNat},
 	core::{muxing::StreamMuxerBox, transport::OrTransport, upgrade::Version, ConnectedPoint},
 	dcutr::Behaviour as Dcutr,
-	dns::TokioDnsConfig,
+	dns::{ResolverConfig, ResolverOpts, TokioDnsConfig},
 	identify::{self, Behaviour as Identify},
 	identity,
 	kad::{Kademlia, KademliaCaching, KademliaConfig},
@@ -96,7 +96,12 @@ pub fn init(
 				}
 			});
 		// wrap transport for DNS lookups
-		TokioDnsConfig::system(transport)?.boxed()
+		let cfg = ResolverConfig::cloudflare();
+
+		let options = ResolverOpts::default();
+		// let do_steps = || -> Result<(), Error> {
+		TokioDnsConfig::custom(transport, cfg, options)?.boxed()
+		// TokioDnsConfig::system(transport)?.boxed()
 	};
 
 	// Initialize Network Behaviour Struct

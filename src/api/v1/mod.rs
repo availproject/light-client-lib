@@ -8,6 +8,7 @@ use std::{
 };
 use warp::{Filter, Rejection, Reply};
 
+mod ffi_api;
 mod handlers;
 mod types;
 
