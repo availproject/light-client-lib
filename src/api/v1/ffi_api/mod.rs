@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-	handlers::{latest_block_from_db, status_from_db},
-	types::{ClientResponse, FfiStatus},
+	handlers::{confidence_from_db, latest_block_from_db, status_from_db},
+	types::{ClientResponse, ConfidenceResponse, FfiStatus},
 };
 
 #[allow(non_snake_case)]
@@ -159,6 +159,26 @@ pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
 					};
 					return _status;
 				},
+				ClientResponse::NotFound => panic!("Not found"),
+				ClientResponse::NotFinalized => panic!("Not Finalized"),
+				ClientResponse::InProcess => panic!("In process"),
+				ClientResponse::Error(err) => panic!("CLI resp {}", err),
+			}
+		},
+		Err(err) => panic!("{}", err),
+	}
+	// let latest_block = latest_block_from_db(db);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn c_confidence(block: u32) -> ConfidenceResponse {
+	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+	match db_result {
+		Ok(db) => {
+			let confidence_res = confidence_from_db(block, db);
+			match confidence_res {
+				ClientResponse::Normal(confidence_response) => return confidence_response,
 				ClientResponse::NotFound => panic!("Not found"),
 				ClientResponse::NotFinalized => panic!("Not Finalized"),
 				ClientResponse::InProcess => panic!("In process"),

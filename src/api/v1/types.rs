@@ -15,6 +15,7 @@ where
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[repr(C)]
 pub struct ConfidenceResponse {
 	pub block: u32,
 	pub confidence: f64,

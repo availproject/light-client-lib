@@ -66,13 +66,9 @@ pub fn confidence(
 	info!("Returning confidence: {res:?}");
 	res
 }
-pub fn confidence_from_db(
-	block_num: u32,
-	db: Arc<DB>,
-	state: Arc<Mutex<State>>,
-) -> ClientResponse<ConfidenceResponse> {
+pub fn confidence_from_db(block_num: u32, db: Arc<DB>) -> ClientResponse<ConfidenceResponse> {
 	info!("Got request for confidence for block {block_num}");
-	let res = match get_confidence_from_db(db, block_num) {
+	let res = match get_confidence_from_db(db.clone(), block_num) {
 		Ok(Some(count)) => {
 			let confidence = calculate_confidence(count);
 			let serialised_confidence = serialised_confidence(block_num, confidence);
@@ -83,11 +79,10 @@ pub fn confidence_from_db(
 			})
 		},
 		Ok(None) => {
-			let state = state.lock().unwrap();
-			if state
-				.confidence_achieved
+			let latest_confidence_achieved_block = get_confidence_achieved_blocks(db.clone());
+			if latest_confidence_achieved_block
 				.as_ref()
-				.map(|range| block_num < range.last)
+				.map(|last| last.is_some() && block_num < last.unwrap_or_default())
 				.unwrap_or(false)
 			{
 				return ClientResponse::NotFinalized;
