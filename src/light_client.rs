@@ -40,15 +40,16 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{error, info};
 
 use crate::{
-	data::{store_block_header_in_db, store_confidence_in_db},
+	data::{
+		get_latest_block, store_block_header_in_db, store_blocks_list_in_db,
+		store_confidence_achieved_blocks_in_db, store_confidence_in_db, store_latest_block_in_db,
+	},
 	network::Client,
 	proof, rpc,
 	telemetry::{MetricCounter, MetricValue, Metrics},
 	types::{self, BlockVerified, LightClientConfig, State},
 	utils::{calculate_confidence, extract_kate},
 };
-pub static mut LC_STATE: Option<Arc<Mutex<State>>> = None;
-pub static mut LC_DB: Option<Arc<DB>> = None;
 
 #[async_trait]
 #[automock]
@@ -65,7 +66,9 @@ pub trait LightClient {
 	async fn network_stats(&self) -> Result<()>;
 	fn store_block_header_in_db(&self, header: &Header, block_number: u32) -> Result<()>;
 	fn store_confidence_in_db(&self, count: u32, block_number: u32) -> Result<()>;
-	fn get_db(&self) -> Arc<DB>;
+	fn store_confidence_achieved_blocks_in_db(&self, block_number: u32) -> Result<()>;
+	fn store_latest_block_in_db(&self, block_number: u32) -> Result<()>;
+	fn store_blocks_list_in_db(&self, block_number: u32) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -119,25 +122,17 @@ impl LightClient for LightClientImpl {
 		store_block_header_in_db(self.db.clone(), block_number, header)
 			.context("Failed to store block header in DB")
 	}
-	fn get_db(&self) -> Arc<DB> {
-		return self.db.clone();
+	fn store_confidence_achieved_blocks_in_db(&self, block_number: u32) -> Result<()> {
+		store_confidence_achieved_blocks_in_db(self.db.clone(), block_number)
+			.context("Failed to store confidence achieved block in DB")
 	}
-}
-pub fn get_lc_state() -> Arc<Mutex<State>> {
-	match unsafe { LC_STATE.clone() } {
-		Some(state) => return state,
-		_ => {
-			panic!("Client not initialized")
-		},
+	fn store_latest_block_in_db(&self, block_number: u32) -> Result<()> {
+		store_latest_block_in_db(self.db.clone(), block_number)
+			.context("Failed to store latest block in DB")
 	}
-}
-
-pub fn get_lc_db() -> Arc<rocksdb::DB> {
-	match unsafe { LC_DB.clone() } {
-		Some(db) => return db,
-		_ => {
-			panic!("Client not initialized")
-		},
+	fn store_blocks_list_in_db(&self, block_number: u32) -> Result<()> {
+		store_blocks_list_in_db(self.db.clone(), block_number)
+			.context("Failed to store latest block in list in DB")
 	}
 }
 
@@ -148,32 +143,32 @@ pub async fn process_block(
 	pp: Arc<PublicParameters>,
 	header: &Header,
 	received_at: Instant,
+	state: Arc<Mutex<State>>,
 ) -> Result<()> {
 	metrics.count(MetricCounter::SessionBlock);
 	metrics.record(MetricValue::TotalBlockNumber(header.number))?;
 
 	let block_number = header.number;
 	let header_hash: H256 = Encode::using_encoded(header, blake2_256).into();
-	let block_delay = received_at.elapsed().as_secs();
 
 	info!(
-		"{} {} Processing finalized block ",
-		block_number, block_delay
+		{ block_number, block_delay = received_at.elapsed().as_secs()},
+		"Processing finalized block",
 	);
 
 	let begin = Instant::now();
 
 	let (rows, cols, _, commitment) = extract_kate(&header.extension);
 	let Some(dimensions) = Dimensions::new(rows, cols) else {
-		error!(
-			"{} {}  {rows}x{cols}",
-			block_number, "Skipping block with invalid dimensions",
+		info!(
+			block_number,
+			"Skipping block with invalid dimensions {rows}x{cols}",
 		);
 		return Ok(());
 	};
 
 	if dimensions.cols().get() <= 2 {
-		error!("{} {}", block_number, "more than 2 columns is required");
+		error!(block_number, "more than 2 columns is required");
 		return Ok(());
 	}
 
@@ -197,6 +192,13 @@ pub async fn process_block(
 		"Number of cells fetched from DHT: {}",
 		cells_fetched.len()
 	);
+
+	let res = light_client.store_latest_block_in_db(block_number);
+	match res {
+		Ok(_) => {},
+		Err(err) => panic!("err : {}", err),
+	}
+	let _ = light_client.store_blocks_list_in_db(block_number);
 	metrics.record(MetricValue::DHTFetched(cells_fetched.len() as f64))?;
 
 	metrics.record(MetricValue::DHTFetchedPercentage(
@@ -226,7 +228,6 @@ pub async fn process_block(
 
 	if positions.len() > cells.len() {
 		error!(
-			"{} {} {} ",
 			block_number,
 			"Failed to fetch {} cells",
 			positions.len() - cells.len()
@@ -234,8 +235,7 @@ pub async fn process_block(
 		return Ok(());
 	}
 
-	//if !cfg.disable_proof_verification {
-	if true {
+	if !cfg.disable_proof_verification {
 		let (verified, unverified) =
 			proof::verify(block_number, dimensions, &cells, &commitments, pp)?;
 		let count = verified.len() - unverified.len();
@@ -249,13 +249,12 @@ pub async fn process_block(
 		light_client
 			.store_confidence_in_db(verified.len() as u32, block_number)
 			.context("Failed to store confidence in DB")?;
-		// panic!("Failed before this");
-		get_lc_state()
-			.lock()
-			.unwrap()
-			.set_confidence_achieved(block_number);
-		let conf: f64 = calculate_confidence(verified.len() as u32);
 
+		state.lock().unwrap().set_confidence_achieved(block_number);
+		light_client.store_confidence_achieved_blocks_in_db(block_number);
+		// store_confidence_achieved_blocks_in_db(, block_number);
+
+		let conf = calculate_confidence(verified.len() as u32);
 		info!(
 			block_number,
 			"confidence" = conf,
@@ -264,18 +263,6 @@ pub async fn process_block(
 		);
 		metrics.record(MetricValue::BlockConfidence(conf))?;
 	}
-	// let _state = state..unwrap();
-
-	// let res = state
-	// 	.lock()
-	// 	.unwrap()
-	// 	.confidence_achieved
-	// 	.as_ref()
-	// 	.map(|range| range.last)
-	// else {
-	// 	panic!("This doesn't work either2");
-	// };
-	// panic!("Here it worked2");
 
 	// push latest mined block's header into column family specified
 	// for keeping block headers, to be used
@@ -431,21 +418,13 @@ pub struct Channels {
 /// * `state` - Processed blocks state
 pub async fn run(
 	light_client: impl LightClient,
-	state: Arc<Mutex<State>>,
 	cfg: LightClientConfig,
 	pp: Arc<PublicParameters>,
 	metrics: Arc<impl Metrics>,
+	state: Arc<Mutex<State>>,
 	mut channels: Channels,
 ) {
-	unsafe {
-		LC_STATE = Some(state);
-		get_lc_state();
-		// match get_lc_state() {
-		// 	Some(_) => panic!("FOund STATE"),
-		// 	None => panic!("Not found"),
-		// }
-		LC_DB = Some(light_client.get_db());
-	}
+	info!("Starting light client...");
 
 	while let Some((header, received_at)) = channels.header_receiver.recv().await {
 		if let Some(seconds) = cfg.block_processing_delay.sleep_duration(received_at) {
@@ -460,6 +439,7 @@ pub async fn run(
 			pp.clone(),
 			&header,
 			received_at,
+			state.clone(),
 		)
 		.await
 		{
@@ -653,6 +633,7 @@ mod tests {
 			pp,
 			&header,
 			recv,
+			state,
 		)
 		.await
 		.unwrap();
@@ -781,6 +762,7 @@ mod tests {
 			pp,
 			&header,
 			recv,
+			state,
 		)
 		.await
 		.unwrap();

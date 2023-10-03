@@ -1,46 +1,18 @@
-use anyhow::{anyhow, Context, Result};
-use libp2p::identity::ed25519::SecretKey;
+use anyhow::{anyhow, Context};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
 use crate::{
-	light_client::get_lc_state,
-	light_client_commons::{run, DB, STATE},
+	light_client_commons::{init_db, run},
 	types::{RuntimeConfig, State},
 };
 
 use super::{
-	handlers,
-	types::{ClientResponse, LatestBlockResponse},
+	handlers::{latest_block_from_db, status_from_db},
+	types::{ClientResponse, FfiStatus},
 };
-// #[cfg(not(target_env = "msvc"))]
-// use tikv_jemallocator::Jemalloc;
-
-// #[cfg(not(target_env = "msvc"))]
-// #[global_allocator]
-// static GLOBAL: Jemalloc = Jemalloc;
-// static mut _STATE: Option<Arc<Mutex<State>>> = None;
-// static mut _DB: Option<Arc<rocksdb::DB>> = None;
-
-// fn get_state() -> Arc<Mutex<State>> {
-// 	match unsafe { _STATE.clone() } {
-// 		Some(state) => return state,
-// 		_ => {
-// 			panic!("Client not initialized")
-// 		},
-// 	}
-// }
-
-// fn get_db() -> Arc<rocksdb::DB> {
-// 	match unsafe { _DB.clone() } {
-// 		Some(db) => return db,
-// 		_ => {
-// 			panic!("Client not initialized")
-// 		},
-// 	}
-// }
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -102,7 +74,7 @@ full_node_ws = ['ws://10.0.2.2:9944']
 confidence = 92.0
 #bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
 #bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
-bootstraps = [['12D3KooWDtNd3RfaSsV6JERupBeoYvzoomeNTcaHpnvcbMMFcUMM', '/ip4/10.0.2.2/udp/37000/quic-v1']]
+bootstraps = [['12D3KooWK1McmB33b53dWo88RGqffoH9mEKCd3ikb4Lf86r8iW81', '/ip4/10.0.2.2/udp/37000/quic-v1']]
 avail_path = '/data/user/0/com.example.avail_light_app/app_flutter'
 log_level = 'INFO'
 log_format_json = false
@@ -136,20 +108,6 @@ max_kad_provided_keys = 1024".to_string());
 	if let Err(error) = res {
 		error!("{error}");
 	} else {
-		// let (state, db): (Arc<Mutex<State>>, Arc<rocksdb::DB>) = res.unwrap();
-
-		// let latest_block = handlers::status(Some(0), state, db);
-		// match latest_block {
-		// 	ClientResponse::Normal(res) => {
-		// 		panic!("confidence {}", res.confidence);
-		// 	},
-		// 	ClientResponse::NotFound => panic!("Not found"),
-		// 	ClientResponse::NotFinalized => panic!("NotFinalized"),
-		// 	ClientResponse::InProcess => panic!("InProcess"),
-		// 	ClientResponse::Error(err) => panic!("err {}", err),
-		// }
-		// STATE = Some(state);
-		// DB = Some(db);
 		return true;
 	};
 
@@ -157,23 +115,59 @@ max_kad_provided_keys = 1024".to_string());
 		Some(error) => error,
 		None => anyhow!("Failed to receive error message"),
 	};
-	panic!("Error: {}", error);
+	error!("Error: {}", error);
 	return false;
 }
 
+#[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_latest_block() -> ClientResponse<LatestBlockResponse> {
-	let state: Arc<Mutex<State>> = get_lc_state();
-	let latest_block = handlers::latest_block(state);
-	match latest_block {
-		ClientResponse::Normal(res) => {
-			panic!("res {}", res.latest_block)
+pub extern "C" fn c_latest_block() -> u32 {
+	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+	match db_result {
+		Ok(db) => {
+			let latest_block = latest_block_from_db(db);
+			match latest_block {
+				ClientResponse::Normal(block) => return block.latest_block,
+				ClientResponse::NotFound => panic!("Not found"),
+				ClientResponse::NotFinalized => panic!("Not Finalized"),
+				ClientResponse::InProcess => panic!("In process"),
+				ClientResponse::Error(err) => panic!("CLI resp {}", err),
+			}
 		},
-		ClientResponse::NotFound => panic!("Not found"),
-		ClientResponse::NotFinalized => panic!("NotFinalized"),
-		ClientResponse::InProcess => panic!("InProcess"),
-		ClientResponse::Error(err) => panic!("err {}", err),
+		Err(err) => panic!("{}", err),
 	}
+	// let latest_block = latest_block_from_db(db);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
+	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+	match db_result {
+		Ok(db) => {
+			let status_resp = status_from_db(Some(app_id), db);
+			match status_resp {
+				ClientResponse::Normal(status) => {
+					let mut _app_id: u32 = app_id;
+					if status.app_id.is_some() {
+						_app_id = status.app_id.unwrap();
+					}
+					let _status = FfiStatus {
+						app_id: _app_id,
+						block_num: status.block_num,
+						confidence: status.confidence,
+					};
+					return _status;
+				},
+				ClientResponse::NotFound => panic!("Not found"),
+				ClientResponse::NotFinalized => panic!("Not Finalized"),
+				ClientResponse::InProcess => panic!("In process"),
+				ClientResponse::Error(err) => panic!("CLI resp {}", err),
+			}
+		},
+		Err(err) => panic!("{}", err),
+	}
+	// let latest_block = latest_block_from_db(db);
 }
 
 fn load_config<T: Serialize + DeserializeOwned + Default>(config: String) -> Option<T> {

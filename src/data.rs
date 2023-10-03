@@ -9,12 +9,17 @@ use rocksdb::DB;
 use std::sync::Arc;
 
 use crate::{
-	consts::{APP_DATA_CF, BLOCK_HEADER_CF, CONFIDENCE_FACTOR_CF, STATE_CF},
+	consts::{
+		APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_KEY, BLOCKS_LIST_LENGTH_CF,
+		BLOCKS_LIST_LENGTH_KEY, BLOCK_HEADER_CF, CONFIDENCE_ACHIEVED_BLOCKS_CF,
+		CONFIDENCE_ACHIEVED_BLOCKS_KEY, CONFIDENCE_FACTOR_CF, LATEST_BLOCK_CF, LATEST_BLOCK_KEY,
+		STATE_CF,
+	},
 	types::FinalitySyncCheckpoint,
 };
 
 const LAST_FULL_NODE_WS_KEY: &str = "last_full_node_ws";
-const GENESIS_HASH_KEY: &str = "genesis_hash";
+const GENESIS_HASH_KEY: &str = "geneshash";
 const FINALITY_SYNC_CHECKPOINT_KEY: &str = "finality_sync_checkpoint";
 
 pub fn store_last_full_node_ws_in_db(db: Arc<DB>, last_full_node_ws: String) -> Result<()> {
@@ -214,4 +219,148 @@ pub fn store_finality_sync_checkpoint(
 		checkpoint.encode().as_slice(),
 	)
 	.context("Failed to write finality sync checkpoint data")
+}
+
+/// Stores block header into database under the given block number key
+pub fn store_latest_block_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
+	let handle = db
+		.cf_handle(LATEST_BLOCK_CF)
+		.context("Failed to get cf handle")?;
+
+	db.put_cf(
+		&handle,
+		LATEST_BLOCK_KEY.as_bytes(),
+		block_number.to_be_bytes(),
+	)
+	.context("Failed to write block header")
+}
+/// Stores block header into database under the given block number key
+pub fn store_confidence_achieved_blocks_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
+	let handle = db
+		.cf_handle(CONFIDENCE_ACHIEVED_BLOCKS_CF)
+		.context("Failed to get cf handle")?;
+
+	db.put_cf(
+		&handle,
+		CONFIDENCE_ACHIEVED_BLOCKS_KEY.as_bytes(),
+		block_number.to_be_bytes(),
+	)
+	.context("Failed to write block header")
+}
+/// Stores block header into database under the given block number key
+pub fn store_blocks_list_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
+	let temp_db = db.clone();
+	let handle = temp_db
+		.cf_handle(BLOCKS_LIST_CF)
+		.context("Failed to get cf handle")?;
+	let block_list_length = get_blocks_list_length(db.clone());
+	let mut head = 0;
+	match block_list_length {
+		Ok(head_) => {
+			if head_.is_some() {
+				head = head_.unwrap();
+			}
+		},
+		Err(_) => {},
+	}
+
+	let key: &str = &format!("{}{}", BLOCKS_LIST_KEY, head);
+
+	db.put_cf(&handle, key.as_bytes(), block_number.to_be_bytes())
+		.context("Failed to write block header");
+
+	return increment_blocks_list_length(db);
+}
+
+/// Stores block header into database under the given block number key
+fn increment_blocks_list_length(db: Arc<DB>) -> Result<()> {
+	let handle = db
+		.cf_handle(BLOCKS_LIST_CF)
+		.context("Failed to get cf handle")?;
+	let block_list_length = get_blocks_list_length(db.clone());
+	let mut head = 0;
+	match block_list_length {
+		Ok(head_) => {
+			if head_.is_some() {
+				head = head_.unwrap();
+			}
+		},
+		Err(_) => {},
+	}
+	// let key: &str = &format!("{}{}", BLOCKS_LIST_KEY, head);
+	db.put_cf(
+		&handle,
+		BLOCKS_LIST_LENGTH_KEY.as_bytes(),
+		(head + 1).to_be_bytes(),
+	)
+	.context("Failed to write block header")
+}
+
+/// Gets confidence factor from database for given block number
+pub fn get_confidence_achieved_blocks(db: Arc<DB>) -> Result<Option<u32>> {
+	let cf_handle = db
+		.cf_handle(CONFIDENCE_ACHIEVED_BLOCKS_CF)
+		.context("Couldn't get column handle from db")?;
+
+	db.get_cf(&cf_handle, CONFIDENCE_ACHIEVED_BLOCKS_KEY.as_bytes())
+		.context("Couldn't get confidence in db")?
+		.map(|data| {
+			data.try_into()
+				.map_err(|_| anyhow!("Conversion failed"))
+				.context("Unable to convert confindence (wrong number of bytes)")
+				.map(u32::from_be_bytes)
+		})
+		.transpose()
+}
+
+/// Gets confidence factor from database for given block number
+pub fn get_latest_block(db: Arc<DB>) -> Result<Option<u32>> {
+	let cf_handle = db
+		.cf_handle(LATEST_BLOCK_CF)
+		.context("Couldn't get column handle from db")?;
+
+	db.get_cf(&cf_handle, LATEST_BLOCK_KEY.as_bytes())
+		.context("Couldn't get confidence in db")?
+		.map(|data| {
+			data.try_into()
+				.map_err(|_| anyhow!("Conversion failed"))
+				.context("Unable to convert confindence (wrong number of bytes)")
+				.map(u32::from_be_bytes)
+		})
+		.transpose()
+}
+
+/// Gets confidence factor from database for given block number
+pub fn get_blocks_list(db: Arc<DB>, index: u32) -> Result<Option<u32>> {
+	let cf_handle = db
+		.cf_handle(BLOCKS_LIST_CF)
+		.context("Couldn't get column handle from db")?;
+	let key: &str = &format!("{}{}", BLOCKS_LIST_KEY, index);
+
+	db.get_cf(&cf_handle, key.as_bytes())
+		.context("Couldn't get confidence in db")?
+		.map(|data| {
+			data.try_into()
+				.map_err(|_| anyhow!("Conversion failed"))
+				.context("Unable to convert confindence (wrong number of bytes)")
+				.map(u32::from_be_bytes)
+		})
+		.transpose()
+}
+
+/// Gets confidence factor from database for given block number
+pub fn get_blocks_list_length(db: Arc<DB>) -> Result<Option<u32>> {
+	let cf_handle: Arc<rocksdb::BoundColumnFamily<'_>> = db
+		.cf_handle(BLOCKS_LIST_LENGTH_CF)
+		.context("Couldn't get column handle from db")?;
+
+	db.get_cf(&cf_handle, BLOCKS_LIST_LENGTH_KEY.as_bytes())
+		.context("Couldn't get confidence in db")?
+		.map(|data| {
+			data.try_into()
+				.map_err(|_| anyhow!("Conversion failed"))
+				.context("Unable to convert confindence (wrong number of bytes)")
+				.map(u32::from_be_bytes)
+		})
+		.transpose()
 }

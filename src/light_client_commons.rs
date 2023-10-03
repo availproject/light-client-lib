@@ -3,10 +3,12 @@ use async_std::stream::StreamExt;
 use avail_core::AppId;
 
 use crate::consts::{
-	APP_DATA_CF, BLOCK_HEADER_CF, CONFIDENCE_FACTOR_CF, EXPECTED_NETWORK_VERSION, STATE_CF,
+	APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_LENGTH_CF, BLOCK_HEADER_CF,
+	CONFIDENCE_ACHIEVED_BLOCKS_CF, CONFIDENCE_FACTOR_CF, EXPECTED_NETWORK_VERSION, LATEST_BLOCK_CF,
+	STATE_CF,
 };
 use crate::data::{self, store_last_full_node_ws_in_db};
-use crate::types::{self, LibP2PConfig, Mode, RuntimeConfig, SecretKey, State};
+use crate::types::{self, Mode, RuntimeConfig, State};
 use crate::{
 	api, app_client, light_client, network, rpc, subscriptions, sync_client, sync_finality,
 };
@@ -28,8 +30,6 @@ use tracing_subscriber::{
 	fmt::format::{self, DefaultFields, Format, Full, Json},
 	FmtSubscriber,
 };
-pub static mut STATE: Option<Arc<Mutex<State>>> = None;
-pub static mut DB: Option<Arc<DB>> = None;
 
 #[cfg(feature = "network-analysis")]
 use network::network_analyzer;
@@ -50,7 +50,7 @@ struct CliOpts {
 	config: String,
 }
 
-fn init_db(path: &str) -> Result<Arc<DB>> {
+pub fn init_db(path: &str, read_only: bool) -> Result<Arc<DB>> {
 	let mut confidence_cf_opts = Options::default();
 	confidence_cf_opts.set_max_write_buffer_number(16);
 
@@ -63,18 +63,41 @@ fn init_db(path: &str) -> Result<Arc<DB>> {
 	let mut state_cf_opts = Options::default();
 	state_cf_opts.set_max_write_buffer_number(16);
 
+	let mut latest_block_cf_opts = Options::default();
+	latest_block_cf_opts.set_max_write_buffer_number(16);
+
+	let mut confidence_achieved_blocks_cf_opts = Options::default();
+	confidence_achieved_blocks_cf_opts.set_max_write_buffer_number(16);
+
+	let mut blocks_list_cf_opts = Options::default();
+	blocks_list_cf_opts.set_max_write_buffer_number(16);
+
+	let mut blocks_list_length_cf_opts = Options::default();
+	blocks_list_length_cf_opts.set_max_write_buffer_number(16);
+
 	let cf_opts = vec![
 		ColumnFamilyDescriptor::new(CONFIDENCE_FACTOR_CF, confidence_cf_opts),
 		ColumnFamilyDescriptor::new(BLOCK_HEADER_CF, block_header_cf_opts),
 		ColumnFamilyDescriptor::new(APP_DATA_CF, app_data_cf_opts),
 		ColumnFamilyDescriptor::new(STATE_CF, state_cf_opts),
+		ColumnFamilyDescriptor::new(LATEST_BLOCK_CF, latest_block_cf_opts),
+		ColumnFamilyDescriptor::new(
+			CONFIDENCE_ACHIEVED_BLOCKS_CF,
+			confidence_achieved_blocks_cf_opts,
+		),
+		ColumnFamilyDescriptor::new(BLOCKS_LIST_CF, blocks_list_cf_opts),
+		ColumnFamilyDescriptor::new(BLOCKS_LIST_LENGTH_CF, blocks_list_length_cf_opts),
 	];
 
 	let mut db_opts = Options::default();
 	db_opts.create_if_missing(true);
 	db_opts.create_missing_column_families(true);
-
-	let db = DB::open_cf_descriptors(&db_opts, path, cf_opts)?;
+	let mut db;
+	if read_only {
+		db = DB::open_cf_descriptors_read_only(&db_opts, path, cf_opts, false)?;
+	} else {
+		db = DB::open_cf_descriptors(&db_opts, path, cf_opts)?;
+	}
 	Ok(Arc::new(db))
 }
 
@@ -105,24 +128,24 @@ pub async fn run(
 	cfg: RuntimeConfig,
 	server_needed: bool,
 ) -> Result<(Arc<Mutex<State>>, Arc<DB>)> {
-	let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
+	// let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
 
-	if cfg.log_format_json {
-		tracing::subscriber::set_global_default(json_subscriber(log_level))
-			.expect("global json subscriber is set")
-	} else {
-		tracing::subscriber::set_global_default(default_subscriber(log_level))
-			.expect("global default subscriber is set")
-	}
+	// if cfg.log_format_json {
+	// 	tracing::subscriber::set_global_default(json_subscriber(log_level))
+	// 		.expect("global json subscriber is set")
+	// } else {
+	// 	tracing::subscriber::set_global_default(default_subscriber(log_level))
+	// 		.expect("global default subscriber is set")
+	// }
 	let version = clap::crate_version!();
 	info!("Running Avail light client version: {version}");
 	info!("Using config: {cfg:?}");
 
-	if let Some(error) = parse_error {
-		warn!("Using default log level: {}", error);
-	}
+	// if let Some(error) = parse_error {
+	// 	warn!("Using default log level: {}", error);
+	// }
 
-	let db = init_db(&cfg.avail_path).context("Cannot initialize database")?;
+	let db = init_db(&cfg.avail_path, false).context("Cannot initialize database")?;
 	// If in fat client mode, enable deleting local Kademlia records
 	// This is a fat client memory optimization
 	let kad_remove_local_record = cfg.block_matrix_partition.is_some();
@@ -181,13 +204,6 @@ pub async fn run(
 		}
 	});
 
-	// panic!(
-	// 	"infoooo {}{}{}{}",
-	// 	cfg.dht_parallelization_limit,
-	// 	cfg.kad_record_ttl,
-	// 	cfg.put_batch_size,
-	// 	kad_remove_local_record
-	// );
 	let (network_client, network_event_loop) = network::init(
 		(&cfg).into(),
 		network_stats_sender,
@@ -198,23 +214,9 @@ pub async fn run(
 		id_keys,
 	)
 	.context("Failed to init Network Service")?;
-	// panic!(
-	// 	"infoooo {}{}{}{}",
-	// 	cfg.dht_parallelization_limit,
-	// 	cfg.kad_record_ttl,
-	// 	cfg.put_batch_size,
-	// 	kad_remove_local_record
-	// );
+
 	// Spawn the network task for it to run in the background
 	tokio::spawn(network_event_loop.run());
-	// panic!(
-	// 	"infoooo {}{}{}{}",
-	// 	cfg.dht_parallelization_limit,
-	// 	cfg.kad_record_ttl,
-	// 	cfg.put_batch_size,
-	// 	kad_remove_local_record
-	// );
-	// panic!("Bootstrapping nodes");
 
 	// Start listening on provided port
 	let port = cfg.port;
@@ -279,7 +281,7 @@ pub async fn run(
 	.await?;
 
 	store_last_full_node_ws_in_db(db.clone(), node.host.clone())?;
-	// panic!("Paniced after ws store");
+
 	info!("Genesis hash: {:?}", node.genesis_hash);
 	if let Some(stored_genesis_hash) = data::get_genesis_hash(db.clone())? {
 		if !node.genesis_hash.eq(&stored_genesis_hash) {
@@ -375,17 +377,14 @@ pub async fn run(
 	};
 	let err = tokio::task::spawn(light_client::run(
 		light_client,
-		state.clone(),
 		(&cfg).into(),
 		pp,
 		ot_metrics,
+		state.clone(),
 		lc_channels,
 	))
 	.await;
-	match err {
-		Ok(_) => panic!("ok"),
-		Err(e) => panic!("{}", e),
-	}
+
 	// tokio::task::spawn(light_client::run(
 	// 	light_client,
 	// 	(&cfg).into(),
@@ -394,10 +393,5 @@ pub async fn run(
 	// 	state.clone(),
 	// 	lc_channels,
 	// ));
-
-	// unsafe {
-	// 	STATE = Some(state.clone());
-	// 	DB = Some(db.clone());
-	// }
 	Ok((state, db))
 }

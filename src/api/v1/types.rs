@@ -45,6 +45,13 @@ pub struct Status {
 	pub confidence: f64,
 	pub app_id: Option<u32>,
 }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[repr(C)]
+pub struct FfiStatus {
+	pub block_num: u32,
+	pub confidence: f64,
+	pub app_id: u32,
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct AppDataQuery {
