@@ -266,7 +266,8 @@ pub fn store_blocks_list_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
 
 	let key: &str = &format!("{}{}", BLOCKS_LIST_KEY, head);
 
-	db.put_cf(&handle, key.as_bytes(), block_number.to_be_bytes())
+	let _ = db
+		.put_cf(&handle, key.as_bytes(), block_number.to_be_bytes())
 		.context("Failed to write block header");
 
 	return increment_blocks_list_length(db);

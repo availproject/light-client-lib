@@ -1,66 +1,25 @@
 use anyhow::{anyhow, Context};
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::{Arc, Mutex};
+use std::ffi::CString;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
 use crate::{
 	light_client_commons::{init_db, run},
-	types::{RuntimeConfig, State},
+	types::RuntimeConfig,
 };
 
 use super::{
-	handlers::{confidence_from_db, latest_block_from_db, status_from_db},
-	types::{ClientResponse, ConfidenceResponse, FfiStatus},
+	handlers::{
+		confidence_from_db, latest_block_from_db, latest_unfinalized_block_from_db, status_from_db,
+	},
+	types::{ClientResponse, FfiConfidenceResponse, FfiStatus},
 };
 
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
 pub async unsafe extern "C" fn start_light_node() -> bool {
-	// let mut cfg: RuntimeConfig = RuntimeConfig::default();
-	// cfg.log_level = String::from("info");
-	// cfg.http_server_host = String::from("10.0.2.2");
-	// // cfg.http_server_port = (7000);
-	// // cfg.full_node_ws = [String::from("ws://10.0.2.2:9944")].to_vec();
-	// cfg.full_node_ws = [String::from("wss://biryani-devnet.avail.tools:443/ws")].to_vec();
-
-	// cfg.dht_parallelization_limit = 20;
-	// // cfg.secret_key = Some(crate::types::SecretKey::Seed("SecretKey"));
-	// // cfg.full_node_ws = [String::from("wss://biryani-devnet.avail.tools/ws")].to_vec();
-	// cfg.disable_rpc = false;
-	// cfg.disable_proof_verification = false;
-	// cfg.dht_parallelization_limit = 20;
-	// cfg.query_proof_rpc_parallel_tasks = 8;
-	// cfg.max_cells_per_rpc = Some(30);
-	// cfg.threshold = 5000;
-	// cfg.kad_record_ttl = 86400;
-	// cfg.publication_interval = 43200;
-	// cfg.replication_interval = 10800;
-	// cfg.replication_factor = 20;
-	// cfg.connection_idle_timeout = 30;
-	// cfg.query_timeout = 60;
-	// cfg.query_parallelism = 3;
-	// cfg.caching_max_peers = 1;
-	// cfg.disjoint_query_paths = false;
-	// cfg.max_kad_record_number = 2400000;
-	// cfg.max_kad_record_size = 8192;
-	// cfg.max_kad_provided_keys = 1024;
-
-	// cfg.avail_path = String::from("/data/user/0/com.example.avail_light_app/app_flutter");
-	// // cfg.bootstraps = [(
-	// // 	String::from("12D3KooWMm1c4pzeLPGkkCJMAgFbsfQ8xmVDusg272icWsaNHWzN"),
-	// // 	("/ip4/10.0.2.2/tcp/37000").parse().unwrap(),
-	// // )]
-	// // .to_vec();
-	// cfg.bootstraps = [(
-	// 	String::from("12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j"),
-	// 	("/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000")
-	// 		.parse()
-	// 		.unwrap(),
-	// )]
-	// .to_vec();
-
 	let cfg_option = load_config(
 "http_server_host = '127.0.0.1'
 http_server_port = '7000'
@@ -138,6 +97,25 @@ pub extern "C" fn c_latest_block() -> u32 {
 	}
 	// let latest_block = latest_block_from_db(db);
 }
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn c_latest_unfinalized_block() -> u32 {
+	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+	match db_result {
+		Ok(db) => {
+			let latest_block = latest_unfinalized_block_from_db(db);
+			match latest_block {
+				ClientResponse::Normal(block) => return block.latest_block,
+				ClientResponse::NotFound => panic!("Not found"),
+				ClientResponse::NotFinalized => panic!("Not Finalized"),
+				ClientResponse::InProcess => panic!("In process"),
+				ClientResponse::Error(err) => panic!("CLI resp {}", err),
+			}
+		},
+		Err(err) => panic!("{}", err),
+	}
+	// let latest_block = latest_block_from_db(db);
+}
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -172,13 +150,28 @@ pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_confidence(block: u32) -> ConfidenceResponse {
+pub extern "C" fn c_confidence(block: u32) -> FfiConfidenceResponse {
 	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
 	match db_result {
 		Ok(db) => {
 			let confidence_res = confidence_from_db(block, db);
 			match confidence_res {
-				ClientResponse::Normal(confidence_response) => return confidence_response,
+				ClientResponse::Normal(confidence_response) => {
+					let mut serialised_confidence: CString = CString::new("").unwrap_or_default();
+					if confidence_response.serialised_confidence.is_some() {
+						serialised_confidence = CString::new(
+							confidence_response
+								.serialised_confidence
+								.unwrap_or_default(),
+						)
+						.unwrap_or_default();
+					}
+					return FfiConfidenceResponse {
+						block: confidence_response.block,
+						confidence: confidence_response.confidence,
+						serialised_confidence,
+					};
+				},
 				ClientResponse::NotFound => panic!("Not found"),
 				ClientResponse::NotFinalized => panic!("Not Finalized"),
 				ClientResponse::InProcess => panic!("In process"),
