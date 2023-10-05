@@ -1,5 +1,3 @@
-use std::ffi::{c_char, CString};
-
 use avail_subxt::primitives::AppUncheckedExtrinsic;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};

@@ -12,7 +12,7 @@ use super::{
 	handlers::{
 		confidence_from_db, latest_block_from_db, latest_unfinalized_block_from_db, status_from_db,
 	},
-	types::{ClientResponse, FfiConfidenceResponse, FfiStatus},
+	types::{ClientResponse, FfiStatus},
 };
 
 #[allow(non_snake_case)]
