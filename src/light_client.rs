@@ -41,8 +41,8 @@ use tracing::{error, info};
 
 use crate::{
 	data::{
-		get_latest_block, store_block_header_in_db, store_blocks_list_in_db,
-		store_confidence_achieved_blocks_in_db, store_confidence_in_db, store_latest_block_in_db,
+		store_block_header_in_db, store_blocks_list_in_db, store_confidence_achieved_blocks_in_db,
+		store_confidence_in_db, store_latest_block_in_db,
 	},
 	network::Client,
 	proof, rpc,
@@ -251,7 +251,7 @@ pub async fn process_block(
 			.context("Failed to store confidence in DB")?;
 
 		state.lock().unwrap().set_confidence_achieved(block_number);
-		light_client.store_confidence_achieved_blocks_in_db(block_number);
+		let _ = light_client.store_confidence_achieved_blocks_in_db(block_number);
 		// store_confidence_achieved_blocks_in_db(, block_number);
 
 		let conf = calculate_confidence(verified.len() as u32);

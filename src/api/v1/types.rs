@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 
 use avail_subxt::primitives::AppUncheckedExtrinsic;
 use hyper::StatusCode;
@@ -24,12 +24,12 @@ pub struct ConfidenceResponse {
 	pub serialised_confidence: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct FfiConfidenceResponse {
 	pub block: u32,
 	pub confidence: f64,
-	pub serialised_confidence: CString,
+	pub serialised_confidence: *const u8,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

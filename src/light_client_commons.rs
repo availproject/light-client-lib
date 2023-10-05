@@ -92,7 +92,7 @@ pub fn init_db(path: &str, read_only: bool) -> Result<Arc<DB>> {
 	let mut db_opts = Options::default();
 	db_opts.create_if_missing(true);
 	db_opts.create_missing_column_families(true);
-	let mut db;
+	let db;
 	if read_only {
 		db = DB::open_cf_descriptors_read_only(&db_opts, path, cf_opts, false)?;
 	} else {
@@ -127,23 +127,27 @@ pub async fn run(
 	error_sender: Sender<anyhow::Error>,
 	cfg: RuntimeConfig,
 	server_needed: bool,
+	await_run: bool,
+	set_parser: bool,
 ) -> Result<(Arc<Mutex<State>>, Arc<DB>)> {
-	// let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
+	if set_parser {
+		let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
 
-	// if cfg.log_format_json {
-	// 	tracing::subscriber::set_global_default(json_subscriber(log_level))
-	// 		.expect("global json subscriber is set")
-	// } else {
-	// 	tracing::subscriber::set_global_default(default_subscriber(log_level))
-	// 		.expect("global default subscriber is set")
-	// }
+		if cfg.log_format_json {
+			tracing::subscriber::set_global_default(json_subscriber(log_level))
+				.expect("global json subscriber is set")
+		} else {
+			tracing::subscriber::set_global_default(default_subscriber(log_level))
+				.expect("global default subscriber is set")
+		}
+		if let Some(error) = parse_error {
+			warn!("Using default log level: {}", error);
+		}
+	}
+
 	let version = clap::crate_version!();
 	info!("Running Avail light client version: {version}");
 	info!("Using config: {cfg:?}");
-
-	// if let Some(error) = parse_error {
-	// 	warn!("Using default log level: {}", error);
-	// }
 
 	let db = init_db(&cfg.avail_path, false).context("Cannot initialize database")?;
 	// If in fat client mode, enable deleting local Kademlia records
@@ -375,23 +379,29 @@ pub async fn run(
 		header_receiver: message_rx,
 		error_sender,
 	};
-	let err = tokio::task::spawn(light_client::run(
-		light_client,
-		(&cfg).into(),
-		pp,
-		ot_metrics,
-		state.clone(),
-		lc_channels,
-	))
-	.await;
+	if await_run {
+		let err = tokio::task::spawn(light_client::run(
+			light_client,
+			(&cfg).into(),
+			pp,
+			ot_metrics,
+			state.clone(),
+			lc_channels,
+		))
+		.await;
+		if err.is_err() {
+			panic!("Error {}", err.unwrap_err());
+		}
+	} else {
+		tokio::task::spawn(light_client::run(
+			light_client,
+			(&cfg).into(),
+			pp,
+			ot_metrics,
+			state.clone(),
+			lc_channels,
+		));
+	}
 
-	// tokio::task::spawn(light_client::run(
-	// 	light_client,
-	// 	(&cfg).into(),
-	// 	pp,
-	// 	ot_metrics,
-	// 	state.clone(),
-	// 	lc_channels,
-	// ));
 	Ok((state, db))
 }

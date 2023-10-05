@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context};
 use serde::{de::DeserializeOwned, Serialize};
-use std::ffi::CString;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
@@ -33,7 +32,7 @@ full_node_ws = ['ws://10.0.2.2:9944']
 confidence = 92.0
 #bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
 #bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
-bootstraps = [['12D3KooWK1McmB33b53dWo88RGqffoH9mEKCd3ikb4Lf86r8iW81', '/ip4/10.0.2.2/udp/37000/quic-v1']]
+bootstraps = [['12D3KooWNsqxiSLSERs3YMYymErtfWWyGCH1ojhikeiFi71hFKiJ', '/ip4/10.0.2.2/udp/37000/quic-v1']]
 avail_path = '/data/user/0/com.example.avail_light_app/app_flutter'
 log_level = 'INFO'
 log_format_json = false
@@ -62,7 +61,7 @@ max_kad_provided_keys = 1024".to_string());
 
 	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
 
-	let res = run(error_sender, cfg, false).await;
+	let res = run(error_sender, cfg, false, true, false).await;
 
 	if let Err(error) = res {
 		error!("{error}");
@@ -150,27 +149,28 @@ pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_confidence(block: u32) -> FfiConfidenceResponse {
+pub extern "C" fn c_confidence(block: u32) -> f64 {
 	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
 	match db_result {
 		Ok(db) => {
 			let confidence_res = confidence_from_db(block, db);
 			match confidence_res {
 				ClientResponse::Normal(confidence_response) => {
-					let mut serialised_confidence: CString = CString::new("").unwrap_or_default();
-					if confidence_response.serialised_confidence.is_some() {
-						serialised_confidence = CString::new(
-							confidence_response
-								.serialised_confidence
-								.unwrap_or_default(),
-						)
-						.unwrap_or_default();
-					}
-					return FfiConfidenceResponse {
-						block: confidence_response.block,
-						confidence: confidence_response.confidence,
-						serialised_confidence,
-					};
+					// panic!("confidence {}", confidence_response.confidence);
+					return confidence_response.confidence;
+
+					// let mut serialised_confidence: *const u8 = "".as_ptr();
+					// if confidence_response.serialised_confidence.is_some() {
+					// 	serialised_confidence = confidence_response
+					// 		.serialised_confidence
+					// 		.unwrap_or_default()
+					// 		.as_ptr();
+					// }
+					// return FfiConfidenceResponse {
+					// 	block: confidence_response.block,
+					// 	confidence: confidence_response.confidence,
+					// 	serialised_confidence,
+					// };
 				},
 				ClientResponse::NotFound => panic!("Not found"),
 				ClientResponse::NotFinalized => panic!("Not Finalized"),

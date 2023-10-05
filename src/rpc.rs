@@ -14,7 +14,7 @@ use kate_recovery::{
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use sp_core::ed25519;
 use std::{collections::HashSet, fmt::Display, ops::Deref};
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 
 use crate::{consts::EXPECTED_NETWORK_VERSION, types::*};
 

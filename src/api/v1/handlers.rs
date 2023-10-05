@@ -70,6 +70,7 @@ pub fn confidence_from_db(block_num: u32, db: Arc<DB>) -> ClientResponse<Confide
 	let res = match get_confidence_from_db(db.clone(), block_num) {
 		Ok(Some(count)) => {
 			let confidence = calculate_confidence(count);
+
 			let serialised_confidence = serialised_confidence(block_num, confidence);
 			ClientResponse::Normal(ConfidenceResponse {
 				block: block_num,
