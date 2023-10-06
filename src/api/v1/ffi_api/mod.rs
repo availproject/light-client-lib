@@ -10,9 +10,7 @@ use crate::{
 };
 
 use super::{
-	handlers::{
-		confidence_from_db, latest_block_from_db, latest_unfinalized_block_from_db, status_from_db,
-	},
+	handlers::{confidence_from_db, latest_block_from_db, status_from_db},
 	types::{ClientResponse, FfiStatus},
 };
 
@@ -66,25 +64,6 @@ pub extern "C" fn c_latest_block() -> u32 {
 	}
 	// let latest_block = latest_block_from_db(db);
 }
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "C" fn c_latest_unfinalized_block() -> u32 {
-	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
-	match db_result {
-		Ok(db) => {
-			let latest_block = latest_unfinalized_block_from_db(db);
-			match latest_block {
-				ClientResponse::Normal(block) => return block.latest_block,
-				ClientResponse::NotFound => panic!("Not found"),
-				ClientResponse::NotFinalized => panic!("Not Finalized"),
-				ClientResponse::InProcess => panic!("In process"),
-				ClientResponse::Error(err) => panic!("CLI resp {}", err),
-			}
-		},
-		Err(err) => panic!("{}", err),
-	}
-	// let latest_block = latest_block_from_db(db);
-}
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -126,7 +105,6 @@ pub extern "C" fn c_confidence(block: u32) -> f64 {
 			let confidence_res = confidence_from_db(block, db);
 			match confidence_res {
 				ClientResponse::Normal(confidence_response) => {
-					// panic!("confidence {}", confidence_response.confidence);
 					return confidence_response.confidence;
 
 					// let mut serialised_confidence: *const u8 = "".as_ptr();
