@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context};
 use serde::{de::DeserializeOwned, Serialize};
+use std::ffi::CString;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
@@ -18,44 +19,13 @@ use super::{
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn start_light_node() -> bool {
-	let cfg_option = load_config(
-"http_server_host = '127.0.0.1'
-http_server_port = '7000'
-libp2p_port = '37000'
-libp2p_tcp_port_reuse = false
-libp2p_autonat_only_global_ips = false
-full_node_rpc= ['http://127.0.0.1:9933']
-# full_node_ws = ['ws://127.0.0.1:9944']
-#full_node_ws = ['wss://biryani-devnet.avail.tools:443/ws']
-full_node_ws = ['ws://10.0.2.2:9944']
-confidence = 92.0
-#bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
-#bootstraps = [['12D3KooWN39TzfjNxqxbzLVEro5rQFfpibcy9SJXnN594j3xhQ4j', '/dns/gateway-lightnode-001.kate.avail.tools/tcp/37000']]
-bootstraps = [['12D3KooWNsqxiSLSERs3YMYymErtfWWyGCH1ojhikeiFi71hFKiJ', '/ip4/10.0.2.2/udp/37000/quic-v1']]
-avail_path = '/data/user/0/com.example.avail_light_app/app_flutter'
-log_level = 'INFO'
-log_format_json = false
-prometheus_port = 9520
-disable_rpc = false
-disable_proof_verification = false
-dht_parallelization_limit = 20
-query_proof_rpc_parallel_tasks = 8
-max_cells_per_rpc = 30
-threshold = 5000
-kad_record_ttl = 86400
-publication_interval = 43200
-replication_interval = 10800
-replication_factor = 20
-connection_idle_timeout = 30
-query_timeout = 60
-query_parallelism = 3
-caching_max_peers = 1
-disjoint_query_paths = false
-max_kad_record_number = 2400000
-max_kad_record_size = 8192
-max_kad_provided_keys = 1024".to_string());
-	let cfg: RuntimeConfig = cfg_option
+pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
+	let c_str = unsafe { CString::from_raw(cfg) };
+
+	let r_str = c_str.to_str().unwrap();
+	let cfg_option = r_str.to_string();
+
+	let cfg: RuntimeConfig = load_config(cfg_option)
 		.context(format!("Failed to load configuration"))
 		.unwrap_unchecked();
 
