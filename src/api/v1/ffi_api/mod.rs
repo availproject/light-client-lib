@@ -18,7 +18,7 @@ use super::{
 #[no_mangle]
 #[tokio::main]
 pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
-	let c_str = unsafe { CString::from_raw(cfg) };
+	let c_str: CString = unsafe { CString::from_raw(cfg) };
 
 	let r_str = c_str.to_str().unwrap();
 	let cfg_option = r_str.to_string();
