@@ -341,3 +341,71 @@ In case of errors, descriptive error message is sent:
 Error codes:
 
 - **bad-request** - request sent via web socket message is not valid
+
+### Header verified
+
+When header verification is finished, the message is pushed to the light client on a **header-verified** topic:
+
+```json
+{
+  "topic": "header-verified",
+  "message": {
+    "block_number": {block-number},
+    "header": {
+      "hash": "{hash}",
+      "parent_hash": "{parent-hash}",
+      "number": {number},
+      "state_root": "{state-root}",
+      "extrinsics_root": "{extrinsics-root}",
+      "extension": {
+        "rows": {rows},
+        "cols": {cols},
+        "data_root": "{data-root}", // Optional
+        "commitments": [
+          "{commitment}", ...
+        ],
+        "app_lookup": {
+          "size": {size},
+          "index": [
+            {
+              "app_id": {app-id},
+              "start": {start}
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+### Confidence achieved
+
+When high confidence in data availability is achieved, the message is pushed to the light client on the **confidence-achieved** topic:
+
+```json
+{
+  "topic": "confidence-achieved",
+  "message": {
+    "block_number": {block-number},
+    "confidence": {confidence} // Optional
+  }
+}
+```
+
+### Data verified
+
+When high confidence in data availability is achieved, the message is pushed to the light client on the **data-verified** topic:
+
+```json
+{
+	"topic": "data-verified",
+	"message": {
+		"block_number": "{block-number}",
+		"data_transactions": [{
+			"data": "{base-64-encoded-data}", // Optional
+			"extrinsic": "{base-64-encoded-extrinsic}" // Optional
+		}]
+	}
+}
+```

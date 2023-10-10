@@ -7,6 +7,8 @@ use clap::Parser;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
+const CLIENT_ROLE: &str = "lightnode";
+
 /// Light Client for Avail Blockchain
 #[derive(Parser)]
 #[command(version)]

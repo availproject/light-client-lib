@@ -1,8 +1,8 @@
 use super::{
 	transactions,
 	types::{
-		Client, Clients, Error, Status, SubmitResponse, Subscription, SubscriptionId, Transaction,
-		Version,
+		Error, Status, SubmitResponse, Subscription, SubscriptionId, Transaction, Version,
+		WsClients,
 	},
 	ws,
 };
@@ -22,11 +22,10 @@ use warp::{ws::Ws, Rejection, Reply};
 
 pub async fn subscriptions(
 	subscription: Subscription,
-	clients: Clients,
+	clients: WsClients,
 ) -> Result<SubscriptionId, Infallible> {
 	let subscription_id = Uuid::new_v4().to_string();
-	let mut clients = clients.write().await;
-	clients.insert(subscription_id.clone(), Client::new(subscription));
+	clients.subscribe(&subscription_id, subscription).await;
 	Ok(SubscriptionId { subscription_id })
 }
 
@@ -48,14 +47,14 @@ pub async fn submit(
 pub async fn ws(
 	subscription_id: String,
 	ws: Ws,
-	clients: Clients,
+	clients: WsClients,
 	version: Version,
 	config: RuntimeConfig,
 	node: Node,
 	submitter: Option<Arc<impl transactions::Submit + Clone + Send + Sync + 'static>>,
 	state: Arc<Mutex<State>>,
 ) -> Result<impl Reply, Rejection> {
-	if !clients.read().await.contains_key(&subscription_id) {
+	if !clients.has_subscription(&subscription_id).await {
 		return Err(warp::reject::not_found());
 	}
 	// NOTE: Multiple connections to the same client are currently allowed

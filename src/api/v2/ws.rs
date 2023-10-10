@@ -1,7 +1,7 @@
 use super::{
 	transactions,
 	types::{
-		Clients, Payload, Request, Response, Status, Transaction, Version, WsError, WsResponse,
+		Payload, Request, Response, Status, Transaction, Version, WsClients, WsError, WsResponse,
 	},
 };
 use crate::{
@@ -15,14 +15,14 @@ use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{error, info};
+use tracing::{error, log::warn};
 use warp::ws::{self, Message, WebSocket};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn connect(
 	subscription_id: String,
 	web_socket: WebSocket,
-	clients: Clients,
+	clients: WsClients,
 	version: Version,
 	config: RuntimeConfig,
 	node: Node,
@@ -33,12 +33,10 @@ pub async fn connect(
 	let (sender, receiver) = mpsc::unbounded_channel();
 	let receiver_stream = UnboundedReceiverStream::new(receiver);
 
-	let mut clients = clients.write().await;
-	let Some(client) = clients.get_mut(&subscription_id) else {
-		info!("Client is not subscribed");
+	if let Err(error) = clients.set_sender(&subscription_id, sender.clone()).await {
+		error!("Cannot set sender: {error}");
 		return;
 	};
-	client.sender = Some(sender.clone());
 
 	tokio::task::spawn(receiver_stream.forward(web_socket_sender).map(|result| {
 		if let Err(error) = result {
@@ -74,14 +72,14 @@ pub async fn connect(
 				Ok(response) => send(sender.clone(), response),
 				Err(error) => {
 					if let Some(cause) = error.cause.as_ref() {
-						error!("Failed to handle request: {cause}");
+						error!("Failed to handle request: {cause:#}");
 					};
 					send::<WsError>(sender.clone(), error.into())
 				},
 			};
 
 		if let Err(error) = send_result {
-			error!("Error sending message: {error}");
+			warn!("Error sending message: {error:#}");
 		}
 	}
 }

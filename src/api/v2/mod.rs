@@ -1,23 +1,25 @@
 use self::{
 	handlers::handle_rejection,
-	types::{Clients, Version},
+	types::{PublishMessage, Version, WsClients},
 };
 use crate::{
+	api::v2::types::Topic,
 	rpc::Node,
 	types::{RuntimeConfig, State},
 };
 use avail_subxt::avail;
 use std::{
-	collections::HashMap,
 	convert::Infallible,
+	fmt::Display,
 	sync::{Arc, Mutex},
 };
-use tokio::sync::RwLock;
+use tokio::sync::broadcast;
+use tracing::{debug, error, info};
 use warp::{Filter, Rejection, Reply};
 
 mod handlers;
 mod transactions;
-mod types;
+pub mod types;
 mod ws;
 
 async fn optionally<T>(value: Option<T>) -> Result<T, Rejection> {
@@ -27,7 +29,9 @@ async fn optionally<T>(value: Option<T>) -> Result<T, Rejection> {
 	}
 }
 
-fn with_clients(clients: Clients) -> impl Filter<Extract = (Clients,), Error = Infallible> + Clone {
+fn with_ws_clients(
+	clients: WsClients,
+) -> impl Filter<Extract = (WsClients,), Error = Infallible> + Clone {
 	warp::any().map(move || clients.clone())
 }
 
@@ -64,17 +68,17 @@ fn submit_route(
 }
 
 fn subscriptions_route(
-	clients: Clients,
+	clients: WsClients,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
 	warp::path!("v2" / "subscriptions")
 		.and(warp::post())
 		.and(warp::body::json())
-		.and(with_clients(clients))
+		.and(with_ws_clients(clients))
 		.and_then(handlers::subscriptions)
 }
 
 fn ws_route(
-	clients: Clients,
+	clients: WsClients,
 	version: Version,
 	config: RuntimeConfig,
 	node: Node,
@@ -83,13 +87,51 @@ fn ws_route(
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
 	warp::path!("v2" / "ws" / String)
 		.and(warp::ws())
-		.and(with_clients(clients))
+		.and(with_ws_clients(clients))
 		.and(warp::any().map(move || version.clone()))
 		.and(warp::any().map(move || config.clone()))
 		.and(warp::any().map(move || node.clone()))
 		.and(warp::any().map(move || submitter.clone()))
 		.and(warp::any().map(move || state.clone()))
 		.and_then(handlers::ws)
+}
+
+pub async fn publish<T: Clone + TryInto<PublishMessage>>(
+	topic: Topic,
+	mut receiver: broadcast::Receiver<T>,
+	clients: WsClients,
+) where
+	<T as TryInto<PublishMessage>>::Error: Display,
+{
+	loop {
+		let message = match receiver.recv().await {
+			Ok(value) => value,
+			Err(error) => {
+				error!(?topic, "Cannot receive message: {error}");
+				return;
+			},
+		};
+
+		let message: PublishMessage = match message.try_into() {
+			Ok(message) => message,
+			Err(error) => {
+				error!(?topic, "Cannot create message: {error}");
+				continue;
+			},
+		};
+
+		match clients.publish(&topic, message).await {
+			Ok(results) => {
+				let published = results.iter().filter(|&result| result.is_ok()).count();
+				let failed = results.iter().filter(|&result| result.is_err()).count();
+				info!(?topic, published, failed, "Message published to clients");
+				for error in results.into_iter().filter_map(Result::err) {
+					debug!(?topic, "Cannot publish message to client: {error}")
+				}
+			},
+			Err(error) => error!(?topic, "Cannot publish message: {error}"),
+		}
+	}
 }
 
 pub fn routes(
@@ -99,8 +141,8 @@ pub fn routes(
 	state: Arc<Mutex<State>>,
 	config: RuntimeConfig,
 	node_client: avail::Client,
+	ws_clients: WsClients,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-	let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
 	let version = Version {
 		version,
 		network_version,
@@ -119,22 +161,21 @@ pub fn routes(
 
 	version_route(version.clone())
 		.or(status_route(config.clone(), node.clone(), state.clone()))
-		.or(subscriptions_route(clients.clone()))
+		.or(subscriptions_route(ws_clients.clone()))
 		.or(submit_route(submitter.clone()))
-		.or(ws_route(clients, version, config, node, submitter, state))
+		.or(ws_route(
+			ws_clients, version, config, node, submitter, state,
+		))
 		.recover(handle_rejection)
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{
-		submit_route, transactions,
-		types::{Client, Transaction},
-	};
+	use super::{submit_route, transactions, types::Transaction};
 	use crate::{
 		api::v2::types::{
-			Clients, DataFields, ErrorCode, SubmitResponse, Subscription, SubscriptionId, Topics,
-			Version, WsError, WsResponse,
+			DataField, ErrorCode, SubmitResponse, Subscription, SubscriptionId, Topic, Version,
+			WsClients, WsError, WsResponse,
 		},
 		rpc::Node,
 		types::{RuntimeConfig, State},
@@ -144,14 +185,12 @@ mod tests {
 	use kate_recovery::matrix::Partition;
 	use sp_core::H256;
 	use std::{
-		collections::{HashMap, HashSet},
+		collections::HashSet,
 		str::FromStr,
 		sync::{Arc, Mutex},
 	};
 	use test_case::test_case;
-	use tokio::sync::RwLock;
 	use uuid::Uuid;
-	use warp::test::WsClient;
 
 	fn v1() -> Version {
 		Version {
@@ -244,18 +283,18 @@ mod tests {
 		assert_eq!(response.body(), &expected);
 	}
 
-	fn all_topics() -> HashSet<Topics> {
+	fn all_topics() -> HashSet<Topic> {
 		vec![
-			Topics::HeaderVerified,
-			Topics::ConfidenceAchieved,
-			Topics::DataVerified,
+			Topic::HeaderVerified,
+			Topic::ConfidenceAchieved,
+			Topic::DataVerified,
 		]
 		.into_iter()
 		.collect()
 	}
 
-	fn all_data_fields() -> HashSet<DataFields> {
-		vec![DataFields::Extrinsic, DataFields::Data]
+	fn all_data_fields() -> HashSet<DataField> {
+		vec![DataField::Extrinsic, DataField::Data]
 			.into_iter()
 			.collect()
 	}
@@ -325,7 +364,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn subscriptions_route() {
-		let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
+		let clients = WsClients::default();
 		let route = super::subscriptions_route(clients.clone());
 
 		let body = r#"{"topics":["confidence-achieved","data-verified","header-verified"],"data_fields":["data","extrinsic"]}"#;
@@ -339,8 +378,9 @@ mod tests {
 		let SubscriptionId { subscription_id } = serde_json::from_slice(response.body()).unwrap();
 		assert!(uuid::Uuid::from_str(&subscription_id).is_ok());
 
-		let clients = clients.read().await;
+		let clients = clients.0.read().await;
 		let client = clients.get(&subscription_id).unwrap();
+
 		let expected = Subscription {
 			topics: all_topics(),
 			data_fields: all_data_fields(),
@@ -349,23 +389,17 @@ mod tests {
 	}
 
 	struct MockSetup {
-		ws_client: WsClient,
+		ws_client: warp::test::WsClient,
 		state: Arc<Mutex<State>>,
 	}
 
 	impl MockSetup {
 		async fn new(config: RuntimeConfig, submitter: Option<MockSubmitter>) -> Self {
 			let client_uuid = uuid::Uuid::new_v4().to_string();
-			let client = Client::new(Subscription {
-				topics: HashSet::new(),
-				data_fields: HashSet::new(),
-			});
-
-			let clients = Arc::new(RwLock::new(
-				[(client_uuid.clone(), client)]
-					.into_iter()
-					.collect::<HashMap<_, _>>(),
-			));
+			let clients = WsClients::default();
+			clients
+				.subscribe(&client_uuid, Subscription::default())
+				.await;
 
 			let state = Arc::new(Mutex::new(State::default()));
 			let route = super::ws_route(
