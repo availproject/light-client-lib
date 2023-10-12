@@ -3,7 +3,6 @@ use crate::{
 	api::v1::types::{Extrinsics, ExtrinsicsDataResponse},
 	data::{
 		get_confidence_achieved_blocks, get_confidence_from_db, get_decoded_data_from_db,
-		get_latest_block,
 	},
 	types::{Mode, State},
 	utils::calculate_confidence,
@@ -162,21 +161,6 @@ pub fn status_from_db(app_id: Option<u32>, db: Arc<DB>) -> ClientResponse<Status
 pub fn latest_block_from_db(db: Arc<DB>) -> ClientResponse<LatestBlockResponse> {
 	info!("Got request for latest block");
 	let res = get_confidence_achieved_blocks(db);
-
-	match res {
-		Ok(block_option) => match block_option {
-			Some(block) => ClientResponse::Normal(LatestBlockResponse {
-				latest_block: block,
-			}),
-			None => ClientResponse::NotFound,
-		},
-		Err(err) => panic!("{}", err),
-	}
-}
-
-pub fn latest_unfinalized_block_from_db(db: Arc<DB>) -> ClientResponse<LatestBlockResponse> {
-	info!("Got request for latest block");
-	let res = get_latest_block(db);
 
 	match res {
 		Ok(block_option) => match block_option {

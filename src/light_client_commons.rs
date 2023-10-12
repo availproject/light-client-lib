@@ -23,15 +23,13 @@ use std::{
 	sync::{Arc, Mutex},
 	time::Instant,
 };
-use tokio::sync::{
-	broadcast,
-	mpsc::{channel, Sender},
-};
-use tracing::{error, info, metadata::ParseLevelError, trace, warn, Level};
+use tokio::sync::{broadcast, mpsc::Sender};
+use tracing::{info, metadata::ParseLevelError, trace, warn, Level};
 use tracing_subscriber::{
 	fmt::format::{self, DefaultFields, Format, Full, Json},
 	FmtSubscriber,
 };
+pub type FfiCallback = fn(topic: *const u8, data: *const u8);
 
 #[cfg(feature = "network-analysis")]
 use network::network_analyzer;
@@ -133,6 +131,7 @@ pub async fn run(
 	server_needed: bool,
 	await_run: bool,
 	set_parser: bool,
+	callback_pointer_option: Option<*mut FfiCallback>,
 ) -> Result<(Arc<Mutex<State>>, Arc<DB>)> {
 	if set_parser {
 		let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
@@ -244,23 +243,7 @@ pub async fn run(
 	let sync_end_block = block_header.number.saturating_sub(1);
 	#[cfg(feature = "api-v2")]
 	let ws_clients = api::v2::types::WsClients::default();
-	if server_needed {
-		// Spawn tokio task which runs one http server for handling RPC
-		let server = api::server::Server {
-			db: db.clone(),
-			cfg: cfg.clone(),
-			state: state.clone(),
-			version: format!("v{}", clap::crate_version!()),
-			network_version: EXPECTED_NETWORK_VERSION.to_string(),
-			node,
-			node_client: rpc_client.clone(),
-			#[cfg(feature = "api-v2")]
-			ws_clients: ws_clients.clone(),
-		};
-
-		tokio::task::spawn(server.run());
-	}
-
+	let (message_tx, message_rx) = broadcast::channel::<(Header, Instant)>(128);
 	let (block_tx, data_rx) = if let Mode::AppClient(app_id) = Mode::from(cfg.app_id) {
 		// communication channels being established for talking to
 		// libp2p backed application client
@@ -283,41 +266,90 @@ pub async fn run(
 	} else {
 		(None, None)
 	};
-	let (message_tx, message_rx) = broadcast::channel::<(Header, Instant)>(128);
 
-	#[cfg(feature = "api-v2")]
-	{
-		tokio::task::spawn(api::v2::publish(
-			api::v2::types::Topic::HeaderVerified,
-			message_tx.subscribe(),
-			ws_clients.clone(),
-		));
+	if server_needed {
+		// Spawn tokio task which runs one http server for handling RPC
+		let server = api::server::Server {
+			db: db.clone(),
+			cfg: cfg.clone(),
+			state: state.clone(),
+			version: format!("v{}", clap::crate_version!()),
+			network_version: EXPECTED_NETWORK_VERSION.to_string(),
+			node,
+			node_client: rpc_client.clone(),
+			#[cfg(feature = "api-v2")]
+			ws_clients: ws_clients.clone(),
+		};
 
-		if let Some(sender) = block_tx.as_ref() {
+		tokio::task::spawn(server.run());
+		#[cfg(feature = "api-v2")]
+		{
 			tokio::task::spawn(api::v2::publish(
-				api::v2::types::Topic::ConfidenceAchieved,
-				sender.subscribe(),
+				api::v2::types::Topic::HeaderVerified,
+				message_tx.subscribe(),
 				ws_clients.clone(),
 			));
-		}
 
-		if let Some(data_rx) = data_rx {
-			tokio::task::spawn(api::v2::publish(
-				api::v2::types::Topic::DataVerified,
-				data_rx,
-				ws_clients,
-			));
-		}
-	}
-	#[cfg(not(feature = "api-v2"))]
-	if let Some(mut data_rx) = data_rx {
-		tokio::task::spawn(async move {
-			loop {
-				// Discard app client messages if API V2 is not enabled
-				_ = data_rx.recv().await;
+			if let Some(sender) = block_tx.as_ref() {
+				tokio::task::spawn(api::v2::publish(
+					api::v2::types::Topic::ConfidenceAchieved,
+					sender.subscribe(),
+					ws_clients.clone(),
+				));
 			}
-		});
-	};
+
+			if let Some(data_rx) = data_rx {
+				tokio::task::spawn(api::v2::publish(
+					api::v2::types::Topic::DataVerified,
+					data_rx,
+					ws_clients,
+				));
+			}
+		}
+		#[cfg(not(feature = "api-v2"))]
+		if let Some(mut data_rx) = data_rx {
+			tokio::task::spawn(async move {
+				loop {
+					// Discard app client messages if API V2 is not enabled
+					_ = data_rx.recv().await;
+				}
+			});
+		};
+	} else {
+		match callback_pointer_option {
+			Some(callback_ptr) => {
+				match unsafe { callback_ptr.as_ref() } {
+					Some(callback) => {
+						let callback = callback.to_owned();
+
+						tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+							api::v2::types::Topic::HeaderVerified,
+							message_tx.subscribe(),
+							callback,
+						));
+
+						if let Some(sender) = block_tx.as_ref() {
+							tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+								api::v2::types::Topic::ConfidenceAchieved,
+								sender.subscribe(),
+								callback,
+							));
+						}
+
+						if let Some(data_rx) = data_rx {
+							tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+								api::v2::types::Topic::DataVerified,
+								data_rx,
+								callback,
+							));
+						}
+					},
+					None => todo!(),
+				};
+			},
+			None => {},
+		};
+	}
 
 	#[cfg(feature = "crawl")]
 	if cfg.crawl.crawl_block {

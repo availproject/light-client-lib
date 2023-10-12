@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 use warp::{Filter, Rejection, Reply};
 
+pub mod ffi_api;
 mod handlers;
 mod transactions;
 pub mod types;

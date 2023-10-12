@@ -15,6 +15,7 @@ use crate::{
 	rpc::Node,
 	types::{RuntimeConfig, State},
 };
+
 use anyhow::Context;
 use avail_subxt::avail;
 use rand::{thread_rng, Rng};
@@ -44,6 +45,8 @@ fn health_route() -> impl Filter<Extract = impl Reply, Error = warp::Rejection> 
 		.and(warp::path("health"))
 		.map(|| warp::reply::with_status("", warp::http::StatusCode::OK))
 }
+
+
 
 impl Server {
 	/// Runs HTTP server

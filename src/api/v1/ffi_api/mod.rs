@@ -1,5 +1,6 @@
+use super::super::common::load_config;
 use anyhow::{anyhow, Context};
-use serde::{de::DeserializeOwned, Serialize};
+
 use std::ffi::CString;
 use tokio::sync::mpsc::channel;
 use tracing::error;
@@ -17,7 +18,7 @@ use super::{
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
+pub async unsafe extern "C" fn start_light_node(cfg: *mut i8) -> bool {
 	let c_str: CString = unsafe { CString::from_raw(cfg) };
 
 	let r_str = c_str.to_str().unwrap();
@@ -29,7 +30,7 @@ pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
 
 	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
 
-	let res = run(error_sender, cfg, false, true, false).await;
+	let res = run(error_sender, cfg, false, true, false, None).await;
 
 	if let Err(error) = res {
 		error!("{error}");
@@ -67,7 +68,7 @@ pub extern "C" fn c_latest_block() -> u32 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
+pub extern "C" fn c_status(app_id: u32) -> *const u8 {
 	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
 	match db_result {
 		Ok(db) => {
@@ -83,7 +84,11 @@ pub extern "C" fn c_status(app_id: u32) -> FfiStatus {
 						block_num: status.block_num,
 						confidence: status.confidence,
 					};
-					return _status;
+					let _status = match serde_json::to_string(&_status) {
+						Ok(_status) => _status,
+						Err(err) => panic!("to json error {}", err),
+					};
+					return _status.as_bytes().as_ptr();
 				},
 				ClientResponse::NotFound => panic!("Not found"),
 				ClientResponse::NotFinalized => panic!("Not Finalized"),
@@ -129,14 +134,4 @@ pub extern "C" fn c_confidence(block: u32) -> f64 {
 		Err(err) => panic!("{}", err),
 	}
 	// let latest_block = latest_block_from_db(db);
-}
-
-fn load_config<T: Serialize + DeserializeOwned + Default>(config: String) -> Option<T> {
-	let cfg_string = config;
-
-	let cfg_data = toml::from_str(&cfg_string);
-	match { cfg_data } {
-		Ok(cfg_data) => Some(cfg_data),
-		Err(_) => panic!("Failed to parse"),
-	}
 }
