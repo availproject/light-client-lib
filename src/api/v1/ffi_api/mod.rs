@@ -1,14 +1,10 @@
-use super::super::common::load_config;
-use anyhow::{anyhow, Context};
+use super::super::common::str_ptr_to_config;
+use anyhow::anyhow;
 
-use std::ffi::CString;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
-use crate::{
-	light_client_commons::{init_db, run},
-	types::RuntimeConfig,
-};
+use crate::light_client_commons::{init_db, run};
 
 use super::{
 	handlers::{confidence_from_db, latest_block_from_db, status_from_db},
@@ -18,15 +14,8 @@ use super::{
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn start_light_node(cfg: *mut i8) -> bool {
-	let c_str: CString = unsafe { CString::from_raw(cfg) };
-
-	let r_str = c_str.to_str().unwrap();
-	let cfg_option = r_str.to_string();
-
-	let cfg: RuntimeConfig = load_config(cfg_option)
-		.context(format!("Failed to load configuration"))
-		.unwrap_unchecked();
+pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
+	let cfg = str_ptr_to_config(cfg);
 
 	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
 
@@ -68,7 +57,7 @@ pub extern "C" fn c_latest_block() -> u32 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_status(app_id: u32) -> *const u8 {
+pub extern "C" fn c_status(app_id: u32) -> *const i8 {
 	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
 	match db_result {
 		Ok(db) => {
@@ -88,7 +77,8 @@ pub extern "C" fn c_status(app_id: u32) -> *const u8 {
 						Ok(_status) => _status,
 						Err(err) => panic!("to json error {}", err),
 					};
-					return _status.as_bytes().as_ptr();
+					//todo: check if it works
+					return _status.as_ptr() as *const i8;
 				},
 				ClientResponse::NotFound => panic!("Not found"),
 				ClientResponse::NotFinalized => panic!("Not Finalized"),

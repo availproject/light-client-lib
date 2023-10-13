@@ -36,7 +36,6 @@ pub async fn submit(
 	if matches!(&transaction, Transaction::Data(_)) && !submitter.has_signer() {
 		return Err(Error::not_found());
 	};
-
 	submitter.submit(transaction).await.map_err(|error| {
 		error!(%error, "Submit transaction failed");
 		Error::internal_server_error(error)
