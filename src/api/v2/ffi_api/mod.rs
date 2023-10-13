@@ -2,8 +2,8 @@ use super::transactions::{self, AvailSigner, Submit};
 use super::{super::common::str_ptr_to_config, types::PublishMessage};
 use crate::api::v2::types::Error;
 use crate::consts::EXPECTED_NETWORK_VERSION;
-use crate::light_client_commons::run;
 use crate::light_client_commons::FfiCallback;
+use crate::light_client_commons::{init_db, run};
 use crate::rpc;
 use crate::types::AvailSecretKey;
 use anyhow::anyhow;
@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
-use super::types::{Topic, Transaction};
+use super::types::{Status, Topic, Transaction};
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -101,7 +101,7 @@ pub async fn submit_transaction(
 	let avail_secret = AvailSecretKey::try_from(private_key.to_str().unwrap().to_owned());
 	let rpc_client_result =
 		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
-	let rpc_client = rpc_client_result.unwrap().0;
+	let rpc_client: subxt::OnlineClient<avail_subxt::AvailConfig> = rpc_client_result.unwrap().0;
 	match avail_secret {
 		Ok(avail_secret) => {
 			let submitter = Arc::new(transactions::Submitter {
@@ -120,4 +120,17 @@ pub async fn submit_transaction(
 		},
 		Err(err) => "Secret Key error".as_ptr(),
 	}
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub async fn get_status(cfg: *mut u8) -> *const u8 {
+	let cfg = str_ptr_to_config(cfg);
+	let rpc_client_result =
+		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
+	let rpc_client = rpc_client_result.unwrap().1;
+	let db = init_db(&cfg.avail_path, true).unwrap();
+	serde_json::to_string(&Status::new_from_db(&cfg, &rpc_client, db))
+		.unwrap()
+		.as_ptr()
 }

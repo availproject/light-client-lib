@@ -212,7 +212,7 @@ pub async fn run(
 	let public_params_len = hex::encode(raw_pp).len();
 	trace!("Public params ({public_params_len}): hash: {public_params_hash}");
 
-	let last_full_node_ws = data::get_last_full_node_ws_from_db(db.clone())?;
+	let last_full_node_ws: Option<String> = data::get_last_full_node_ws_from_db(db.clone())?;
 
 	let (rpc_client, node) = rpc::connect_to_the_full_node(
 		&cfg.full_node_ws,

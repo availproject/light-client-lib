@@ -8,6 +8,7 @@ use codec::Encode;
 use derive_more::From;
 use hyper::{http, StatusCode};
 use kate_recovery::{com::AppData, commitments, config, matrix::Partition};
+use rocksdb::DB;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sp_core::{blake2_256, H256};
 use std::{
@@ -15,6 +16,7 @@ use std::{
 	sync::Arc,
 	time::Instant,
 };
+use subxt::blocks::Block;
 use tokio::sync::{mpsc::UnboundedSender, RwLock};
 use uuid::Uuid;
 use warp::{
@@ -23,6 +25,10 @@ use warp::{
 };
 
 use crate::{
+	data::{
+		get_blocks_list, get_confidence_achieved_blocks, get_confidence_from_db,
+		store_confidence_achieved_blocks_in_db,
+	},
 	rpc::Node,
 	types::{self, block_matrix_partition_format, BlockVerified, RuntimeConfig, State},
 	utils::decode_app_data,
@@ -167,6 +173,34 @@ impl Status {
 			available: state.confidence_achieved.as_ref().map(From::from),
 			app_data: state.data_verified.as_ref().map(From::from),
 			historical_sync,
+		};
+
+		Status {
+			modes: config.into(),
+			app_id: config.app_id,
+			genesis_hash: format!("{:?}", node.genesis_hash),
+			network: node.network(),
+			blocks,
+			partition: config.block_matrix_partition,
+		}
+	}
+
+	pub fn new_from_db(config: &RuntimeConfig, node: &Node, db: Arc<DB>) -> Self {
+		let latest_block = get_confidence_achieved_blocks(db)
+			.unwrap()
+			.unwrap_or_default();
+		let confidence_achieved = get_confidence_from_db(db, latest_block)
+			.unwrap()
+			.unwrap_or_default();
+		let first_block = get_blocks_list(db, 0).unwrap().unwrap_or_default();
+		let blocks = Blocks {
+			latest: latest_block,
+			available: Some(BlockRange {
+				first: first_block,
+				last: latest_block,
+			}),
+			app_data: None,
+			historical_sync: None,
 		};
 
 		Status {

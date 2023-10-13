@@ -37,8 +37,10 @@ pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_latest_block() -> u32 {
-	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+pub extern "C" fn c_latest_block(cfg: *mut u8) -> u32 {
+	let cfg = str_ptr_to_config(cfg);
+
+	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
 			let latest_block = latest_block_from_db(db);
@@ -57,8 +59,10 @@ pub extern "C" fn c_latest_block() -> u32 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_status(app_id: u32) -> *const i8 {
-	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+pub extern "C" fn c_status(app_id: u32, cfg: *mut u8) -> *const i8 {
+	let cfg = str_ptr_to_config(cfg);
+
+	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
 			let status_resp = status_from_db(Some(app_id), db);
@@ -93,8 +97,10 @@ pub extern "C" fn c_status(app_id: u32) -> *const i8 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_confidence(block: u32) -> f64 {
-	let db_result = init_db("/data/user/0/com.example.avail_light_app/app_flutter", true);
+pub extern "C" fn c_confidence(block: u32, cfg: *mut u8) -> f64 {
+	let cfg = str_ptr_to_config(cfg);
+
+	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
 			let confidence_res = confidence_from_db(block, db);
