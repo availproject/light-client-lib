@@ -16,7 +16,6 @@ use std::{
 	sync::Arc,
 	time::Instant,
 };
-use subxt::blocks::Block;
 use tokio::sync::{mpsc::UnboundedSender, RwLock};
 use uuid::Uuid;
 use warp::{
@@ -25,10 +24,7 @@ use warp::{
 };
 
 use crate::{
-	data::{
-		get_blocks_list, get_confidence_achieved_blocks, get_confidence_from_db,
-		store_confidence_achieved_blocks_in_db,
-	},
+	data::{get_blocks_list, get_confidence_achieved_blocks, get_confidence_from_db},
 	rpc::Node,
 	types::{self, block_matrix_partition_format, BlockVerified, RuntimeConfig, State},
 	utils::decode_app_data,
