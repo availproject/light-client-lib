@@ -3,7 +3,7 @@ use std::ffi::CString;
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::types::RuntimeConfig;
+use crate::types::{ErrorResponse, RuntimeConfig};
 
 pub fn load_config<T: Serialize + DeserializeOwned + Default>(config: String) -> Option<T> {
 	let cfg_string = config;
@@ -25,4 +25,16 @@ pub fn str_ptr_to_config(cfg: *mut u8) -> RuntimeConfig {
 			.context(format!("Failed to load configuration"))
 			.unwrap_unchecked();
 	};
+}
+
+pub fn object_to_ptr<T>(value: &T) -> *const u8
+where
+	T: ?Sized + Serialize,
+{
+	serde_json::to_string(value).unwrap().as_ptr()
+}
+pub fn string_to_error_resp_json_ptr(value: String) -> *const u8 {
+	serde_json::to_string(&ErrorResponse { message: value })
+		.unwrap()
+		.as_ptr()
 }

@@ -668,3 +668,8 @@ impl<'de> Deserialize<'de> for GrandpaJustification {
 			.map_err(|codec_err| D::Error::custom(format!("Invalid decoding: {:?}", codec_err)))
 	}
 }
+
+#[derive(Clone, Debug, Decode, Deserialize, Serialize)]
+pub struct ErrorResponse {
+	pub message: String,
+}

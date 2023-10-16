@@ -1,14 +1,18 @@
 use super::super::common::str_ptr_to_config;
 use anyhow::anyhow;
 
+use serde::Serialize;
 use tokio::sync::mpsc::channel;
 use tracing::error;
 
-use crate::light_client_commons::{init_db, run};
+use crate::{
+	api::common::{object_to_ptr, string_to_error_resp_json_ptr},
+	light_client_commons::{init_db, run},
+};
 
 use super::{
 	handlers::{confidence_from_db, latest_block_from_db, status_from_db},
-	types::{ClientResponse, FfiStatus},
+	types::ClientResponse,
 };
 
 #[allow(non_snake_case)]
@@ -37,97 +41,58 @@ pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_latest_block(cfg: *mut u8) -> u32 {
+pub extern "C" fn c_latest_block(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
-			let latest_block = latest_block_from_db(db);
-			match latest_block {
-				ClientResponse::Normal(block) => return block.latest_block,
-				ClientResponse::NotFound => panic!("Not found"),
-				ClientResponse::NotFinalized => panic!("Not Finalized"),
-				ClientResponse::InProcess => panic!("In process"),
-				ClientResponse::Error(err) => panic!("CLI resp {}", err),
-			}
+			let latest_block_response = latest_block_from_db(db);
+			process_client_response(latest_block_response)
 		},
-		Err(err) => panic!("{}", err),
+		Err(err) => string_to_error_resp_json_ptr(err.to_string()),
 	}
-	// let latest_block = latest_block_from_db(db);
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_status(app_id: u32, cfg: *mut u8) -> *const i8 {
+pub extern "C" fn c_status(app_id: u32, cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
-			let status_resp = status_from_db(Some(app_id), db);
-			match status_resp {
-				ClientResponse::Normal(status) => {
-					let mut _app_id: u32 = app_id;
-					if status.app_id.is_some() {
-						_app_id = status.app_id.unwrap();
-					}
-					let _status = FfiStatus {
-						app_id: _app_id,
-						block_num: status.block_num,
-						confidence: status.confidence,
-					};
-					let _status = match serde_json::to_string(&_status) {
-						Ok(_status) => _status,
-						Err(err) => panic!("to json error {}", err),
-					};
-					//todo: check if it works
-					return _status.as_ptr() as *const i8;
-				},
-				ClientResponse::NotFound => panic!("Not found"),
-				ClientResponse::NotFinalized => panic!("Not Finalized"),
-				ClientResponse::InProcess => panic!("In process"),
-				ClientResponse::Error(err) => panic!("CLI resp {}", err),
-			}
+			let status_response = status_from_db(Some(app_id), db);
+			process_client_response(status_response)
 		},
-		Err(err) => panic!("{}", err),
+		Err(err) => string_to_error_resp_json_ptr(err.to_string()),
 	}
-	// let latest_block = latest_block_from_db(db);
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_confidence(block: u32, cfg: *mut u8) -> f64 {
+pub extern "C" fn c_confidence(block: u32, cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
-			let confidence_res = confidence_from_db(block, db);
-			match confidence_res {
-				ClientResponse::Normal(confidence_response) => {
-					return confidence_response.confidence;
-
-					// let mut serialised_confidence: *const u8 = "".as_ptr();
-					// if confidence_response.serialised_confidence.is_some() {
-					// 	serialised_confidence = confidence_response
-					// 		.serialised_confidence
-					// 		.unwrap_or_default()
-					// 		.as_ptr();
-					// }
-					// return FfiConfidenceResponse {
-					// 	block: confidence_response.block,
-					// 	confidence: confidence_response.confidence,
-					// 	serialised_confidence,
-					// };
-				},
-				ClientResponse::NotFound => panic!("Not found"),
-				ClientResponse::NotFinalized => panic!("Not Finalized"),
-				ClientResponse::InProcess => panic!("In process"),
-				ClientResponse::Error(err) => panic!("CLI resp {}", err),
-			}
+			let confidence_reponse: ClientResponse<super::types::ConfidenceResponse> =
+				confidence_from_db(block, db);
+			process_client_response(confidence_reponse)
 		},
-		Err(err) => panic!("{}", err),
+		Err(err) => string_to_error_resp_json_ptr(err.to_string()),
 	}
-	// let latest_block = latest_block_from_db(db);
+}
+fn process_client_response<T>(response: ClientResponse<T>) -> *const u8
+where
+	T: Serialize,
+{
+	match response {
+		ClientResponse::Normal(resolved_response) => object_to_ptr(&resolved_response),
+		ClientResponse::NotFound => string_to_error_resp_json_ptr("Not found".to_owned()),
+		ClientResponse::NotFinalized => string_to_error_resp_json_ptr("Not Finalized".to_owned()),
+		ClientResponse::InProcess => string_to_error_resp_json_ptr("In process".to_owned()),
+		ClientResponse::Error(err) => string_to_error_resp_json_ptr(err.to_string()),
+	}
 }
