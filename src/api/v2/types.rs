@@ -24,7 +24,7 @@ use warp::{
 };
 
 use crate::{
-	data::{get_blocks_list, get_confidence_achieved_blocks, get_confidence_from_db},
+	data::{get_blocks_list, get_confidence_achieved_blocks},
 	rpc::Node,
 	types::{self, block_matrix_partition_format, BlockVerified, RuntimeConfig, State},
 	utils::decode_app_data,
@@ -182,13 +182,11 @@ impl Status {
 	}
 
 	pub fn new_from_db(config: &RuntimeConfig, node: &Node, db: Arc<DB>) -> Self {
-		let latest_block = get_confidence_achieved_blocks(db)
+		let latest_block = get_confidence_achieved_blocks(db.clone())
 			.unwrap()
 			.unwrap_or_default();
-		let confidence_achieved = get_confidence_from_db(db, latest_block)
-			.unwrap()
-			.unwrap_or_default();
-		let first_block = get_blocks_list(db, 0).unwrap().unwrap_or_default();
+
+		let first_block = get_blocks_list(db.clone(), 0).unwrap().unwrap_or_default();
 		let blocks = Blocks {
 			latest: latest_block,
 			available: Some(BlockRange {

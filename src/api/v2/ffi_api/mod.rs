@@ -88,15 +88,15 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async fn submit_transaction(
-	private_key: *mut i8,
+pub async unsafe fn submit_transaction(
+	private_key: *mut u8,
 	app_id: u32,
 	cfg: *mut u8,
-	transaction: *mut i8,
+	transaction: *mut u8,
 ) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-	let c_str_trx = unsafe { CString::from_raw(transaction).to_str().unwrap() };
-	let transaction: Transaction = serde_json::from_str(c_str_trx).unwrap();
+	let c_str_trx = unsafe { CString::from_raw(transaction).to_str().unwrap().to_owned() };
+	let transaction: Transaction = serde_json::from_str(c_str_trx.as_str()).unwrap();
 	let private_key: CString = unsafe { CString::from_raw(private_key) };
 	let avail_secret = AvailSecretKey::try_from(private_key.to_str().unwrap().to_owned());
 	let rpc_client_result =
@@ -118,7 +118,7 @@ pub async fn submit_transaction(
 				Err(err) => err.message.as_ptr(),
 			}
 		},
-		Err(err) => "Secret Key error".as_ptr(),
+		Err(_) => "Secret Key error".as_ptr(),
 	}
 }
 
