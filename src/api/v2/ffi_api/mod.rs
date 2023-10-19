@@ -133,7 +133,7 @@ pub async unsafe fn submit_transaction(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub async fn get_status(cfg: *mut u8) -> *const u8 {
+pub async fn get_status_v2(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let rpc_client_result =
 		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
