@@ -94,19 +94,22 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 #[no_mangle]
 #[tokio::main]
 pub async unsafe fn submit_transaction(
-	private_key: *mut u8,
-	app_id: u32,
 	cfg: *mut u8,
+	app_id: u32,
 	transaction: *mut u8,
+	private_key: *mut u8,
 ) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let c_str_trx = unsafe { CString::from_raw(transaction).to_str().unwrap().to_owned() };
 	let transaction: Transaction = serde_json::from_str(c_str_trx.as_str()).unwrap();
 	let private_key: CString = unsafe { CString::from_raw(private_key) };
 	let avail_secret = AvailSecretKey::try_from(private_key.to_str().unwrap().to_owned());
+
 	let rpc_client_result =
 		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
+
 	let rpc_client: subxt::OnlineClient<avail_subxt::AvailConfig> = rpc_client_result.unwrap().0;
+
 	match avail_secret {
 		Ok(avail_secret) => {
 			let submitter = Arc::new(transactions::Submitter {
@@ -116,6 +119,7 @@ pub async unsafe fn submit_transaction(
 			});
 			let response = submitter.submit(transaction).await.map_err(|error| {
 				error!(%error, "Submit transaction failed");
+
 				Error::internal_server_error(error)
 			});
 			match response {
