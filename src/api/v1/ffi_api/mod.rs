@@ -43,7 +43,6 @@ pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
 #[no_mangle]
 pub extern "C" fn c_latest_block(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {

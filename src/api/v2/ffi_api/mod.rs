@@ -21,7 +21,7 @@ use super::types::{Status, Topic, Transaction};
 #[tokio::main]
 pub async unsafe extern "C" fn start_light_node_with_callbacks(
 	cfg: *mut u8,
-	ffi_callback: *mut FfiCallback,
+	ffi_callback: *const FfiCallback,
 ) -> bool {
 	let cfg = str_ptr_to_config(cfg);
 
@@ -42,7 +42,6 @@ pub async unsafe extern "C" fn start_light_node_with_callbacks(
 	error!("Error: {}", error);
 	return false;
 }
-
 pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 	topic: Topic,
 	mut receiver: broadcast::Receiver<T>,
@@ -66,23 +65,27 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 			},
 		};
 
-		let json_message = match serde_json::to_string(&message) {
-			Ok(json_message) => json_message,
+		let json_message = match serde_json::to_string_pretty(&message) {
+			Ok(json_message) => json_message.as_ptr(),
 			Err(error) => {
 				error!(?topic, "Cannot create message: {error}");
 				continue;
 			},
 		};
-		let json_topic = match serde_json::to_string(&topic) {
-			Ok(json_topic) => json_topic,
+		let json_topic = match serde_json::to_string_pretty(&topic) {
+			Ok(json_topic) => json_topic.as_ptr(),
 			Err(error) => {
 				error!(?topic, "Cannot create message: {error}");
 				continue;
 			},
 		};
-		let topic_ptr = json_topic.as_ptr();
-		let message_ptr = json_message.as_ptr();
-		callback(topic_ptr, message_ptr);
+		// let topic_cstr: CString = CString::new(json_topic).unwrap();
+		// let message_cstr: CString = CString::new(json_message).unwrap();
+
+		// let topic_ptr = topic_cstr.into_bytes().as_ptr();
+		// let message_ptr = message_cstr.into_bytes().as_ptr();
+		// callback(topic_ptr, message_ptr);
+		callback(json_topic, json_message);
 	}
 }
 #[allow(non_snake_case)]

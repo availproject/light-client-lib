@@ -29,7 +29,7 @@ use tracing_subscriber::{
 	fmt::format::{self, DefaultFields, Format, Full, Json},
 	FmtSubscriber,
 };
-pub type FfiCallback = fn(topic: *const u8, data: *const u8);
+pub type FfiCallback = extern "C" fn(topic: *const u8, data: *const u8);
 
 #[cfg(feature = "network-analysis")]
 use network::network_analyzer;
@@ -131,7 +131,7 @@ pub async fn run(
 	server_needed: bool,
 	await_run: bool,
 	set_parser: bool,
-	callback_pointer_option: Option<*mut FfiCallback>,
+	callback_pointer_option: Option<*const FfiCallback>,
 ) -> Result<(Arc<Mutex<State>>, Arc<DB>)> {
 	if set_parser {
 		let (log_level, parse_error) = parse_log_level(&cfg.log_level, Level::INFO);
@@ -318,34 +318,28 @@ pub async fn run(
 	} else {
 		match callback_pointer_option {
 			Some(callback_ptr) => {
-				match unsafe { callback_ptr.as_ref() } {
-					Some(callback) => {
-						let callback = callback.to_owned();
+				let callback: FfiCallback = unsafe { std::mem::transmute(callback_ptr) };
+				tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+					api::v2::types::Topic::HeaderVerified,
+					message_tx.subscribe(),
+					callback,
+				));
 
-						tokio::task::spawn(api::v2::ffi_api::call_callbacks(
-							api::v2::types::Topic::HeaderVerified,
-							message_tx.subscribe(),
-							callback,
-						));
+				if let Some(sender) = block_tx.as_ref() {
+					tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+						api::v2::types::Topic::ConfidenceAchieved,
+						sender.subscribe(),
+						callback,
+					));
+				}
 
-						if let Some(sender) = block_tx.as_ref() {
-							tokio::task::spawn(api::v2::ffi_api::call_callbacks(
-								api::v2::types::Topic::ConfidenceAchieved,
-								sender.subscribe(),
-								callback,
-							));
-						}
-
-						if let Some(data_rx) = data_rx {
-							tokio::task::spawn(api::v2::ffi_api::call_callbacks(
-								api::v2::types::Topic::DataVerified,
-								data_rx,
-								callback,
-							));
-						}
-					},
-					None => todo!(),
-				};
+				if let Some(data_rx) = data_rx {
+					tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+						api::v2::types::Topic::DataVerified,
+						data_rx,
+						callback,
+					));
+				}
 			},
 			None => {},
 		};
