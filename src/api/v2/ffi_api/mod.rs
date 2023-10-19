@@ -64,7 +64,6 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 				continue;
 			},
 		};
-
 		let json_message = match serde_json::to_string_pretty(&message) {
 			Ok(json_message) => json_message.as_ptr(),
 			Err(error) => {
@@ -72,20 +71,23 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 				continue;
 			},
 		};
-		let json_topic = match serde_json::to_string_pretty(&topic) {
-			Ok(json_topic) => json_topic.as_ptr(),
-			Err(error) => {
-				error!(?topic, "Cannot create message: {error}");
-				continue;
+		match message {
+			PublishMessage::HeaderVerified(_) => {
+				if topic == Topic::HeaderVerified {
+					callback(json_message);
+				}
 			},
-		};
-		// let topic_cstr: CString = CString::new(json_topic).unwrap();
-		// let message_cstr: CString = CString::new(json_message).unwrap();
-
-		// let topic_ptr = topic_cstr.into_bytes().as_ptr();
-		// let message_ptr = message_cstr.into_bytes().as_ptr();
-		// callback(topic_ptr, message_ptr);
-		callback(json_topic, json_message);
+			PublishMessage::ConfidenceAchieved(_) => {
+				if topic == Topic::ConfidenceAchieved {
+					callback(json_message);
+				}
+			},
+			PublishMessage::DataVerified(_) => {
+				if topic == Topic::DataVerified {
+					callback(json_message);
+				}
+			},
+		}
 	}
 }
 #[allow(non_snake_case)]

@@ -29,7 +29,7 @@ use tracing_subscriber::{
 	fmt::format::{self, DefaultFields, Format, Full, Json},
 	FmtSubscriber,
 };
-pub type FfiCallback = extern "C" fn(topic: *const u8, data: *const u8);
+pub type FfiCallback = extern "C" fn(data: *const u8);
 
 #[cfg(feature = "network-analysis")]
 use network::network_analyzer;
