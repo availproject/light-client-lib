@@ -324,7 +324,6 @@ pub async fn run(
 					message_tx.subscribe(),
 					callback,
 				));
-
 				if let Some(sender) = block_tx.as_ref() {
 					tokio::task::spawn(api::v2::ffi_api::call_callbacks(
 						api::v2::types::Topic::ConfidenceAchieved,

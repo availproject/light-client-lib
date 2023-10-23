@@ -197,14 +197,14 @@ impl Status {
 			historical_sync: None,
 		};
 
-		Status {
+		return Status {
 			modes: config.into(),
 			app_id: config.app_id,
 			genesis_hash: format!("{:?}", node.genesis_hash),
 			network: node.network(),
 			blocks,
 			partition: config.block_matrix_partition,
-		}
+		};
 	}
 }
 

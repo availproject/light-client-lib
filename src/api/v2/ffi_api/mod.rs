@@ -1,5 +1,6 @@
 use super::transactions::{self, AvailSigner, Submit};
 use super::{super::common::str_ptr_to_config, types::PublishMessage};
+use crate::api::common::object_to_ptr;
 use crate::api::v2::types::Error;
 use crate::consts::EXPECTED_NETWORK_VERSION;
 use crate::light_client_commons::FfiCallback;
@@ -19,7 +20,7 @@ use super::types::{Status, Topic, Transaction};
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn start_light_node_with_callbacks(
+pub async unsafe extern "C" fn startLightNodeWithCallback(
 	cfg: *mut u8,
 	ffi_callback: *const FfiCallback,
 ) -> bool {
@@ -65,7 +66,11 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 			},
 		};
 		let json_message = match serde_json::to_string_pretty(&message) {
-			Ok(json_message) => json_message.as_ptr(),
+			Ok(json_message) => {
+				let mut message = json_message.to_owned();
+				message.push_str("\0");
+				message.as_ptr()
+			},
 			Err(error) => {
 				error!(?topic, "Cannot create message: {error}");
 				continue;
@@ -93,7 +98,7 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe fn submit_transaction(
+pub async unsafe extern "C" fn submitTransactionn(
 	cfg: *mut u8,
 	app_id: u32,
 	transaction: *mut u8,
@@ -133,13 +138,12 @@ pub async unsafe fn submit_transaction(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub async fn get_status_v2(cfg: *mut u8) -> *const u8 {
+pub async extern "C" fn getStatusV2(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let rpc_client_result =
-		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
+		rpc::connect_to_the_full_node(&cfg.clone().full_node_ws, None, EXPECTED_NETWORK_VERSION)
+			.await;
 	let rpc_client = rpc_client_result.unwrap().1;
-	let db = init_db(&cfg.avail_path, true).unwrap();
-	serde_json::to_string(&Status::new_from_db(&cfg, &rpc_client, db))
-		.unwrap()
-		.as_ptr()
+	let db = init_db(&cfg.clone().avail_path, true).unwrap();
+	return object_to_ptr(&Status::new_from_db(&cfg, &rpc_client, db));
 }

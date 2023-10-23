@@ -19,6 +19,7 @@ bench = false
 [lib]
 name = "avail_light"
 crate-type = ["staticlib","dylib","rlib"]
+build = "src/api/v2/ffi_api/mod.rs"
 
 [dependencies]
 # TODO: Remove direct dependency after relevant traits are implemented in avail-subxt
@@ -104,3 +105,6 @@ incremental = false
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+
+[build-dependencies]
+cbindgen = "0.26.0"

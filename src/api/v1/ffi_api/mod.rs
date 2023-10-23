@@ -18,7 +18,7 @@ use super::{
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
+pub async unsafe extern "C" fn startLightNode(cfg: *mut u8) -> bool {
 	let cfg = str_ptr_to_config(cfg);
 
 	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
@@ -41,7 +41,7 @@ pub async unsafe extern "C" fn start_light_node(cfg: *mut u8) -> bool {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_latest_block(cfg: *mut u8) -> *const u8 {
+pub extern "C" fn latestBlock(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
@@ -55,7 +55,7 @@ pub extern "C" fn c_latest_block(cfg: *mut u8) -> *const u8 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_status(app_id: u32, cfg: *mut u8) -> *const u8 {
+pub extern "C" fn status(app_id: u32, cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 
 	let db_result = init_db(&cfg.avail_path, true);
@@ -70,7 +70,7 @@ pub extern "C" fn c_status(app_id: u32, cfg: *mut u8) -> *const u8 {
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn c_confidence(block: u32, cfg: *mut u8) -> *const u8 {
+pub extern "C" fn confidence(block: u32, cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 
 	let db_result = init_db(&cfg.avail_path, true);
