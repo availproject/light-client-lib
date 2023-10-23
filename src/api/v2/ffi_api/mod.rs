@@ -138,6 +138,7 @@ pub async unsafe extern "C" fn submitTransactionn(
 
 #[allow(non_snake_case)]
 #[no_mangle]
+#[tokio::main]
 pub async extern "C" fn getStatusV2(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let rpc_client_result =
@@ -145,5 +146,6 @@ pub async extern "C" fn getStatusV2(cfg: *mut u8) -> *const u8 {
 			.await;
 	let rpc_client = rpc_client_result.unwrap().1;
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
-	return object_to_ptr(&Status::new_from_db(&cfg, &rpc_client, db));
+	let status = Status::new_from_db(&cfg, &rpc_client, db);
+	return object_to_ptr(&status);
 }
