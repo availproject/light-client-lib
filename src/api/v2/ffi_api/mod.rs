@@ -66,8 +66,9 @@ pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
 			},
 		};
 		let json_message = match serde_json::to_string_pretty(&message) {
+			//Todo: fix null termination here
 			Ok(json_message) => {
-				let mut message = json_message.to_owned();
+				let mut message = json_message;
 				message.push_str("\0");
 				message.as_ptr()
 			},
