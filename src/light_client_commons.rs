@@ -8,12 +8,11 @@ use crate::consts::{
 	STATE_CF,
 };
 use crate::data::{self, store_last_full_node_ws_in_db};
+use crate::telemetry::{self};
 use crate::types::{self, Mode, RuntimeConfig, State};
 use crate::{
 	api, app_client, light_client, network, rpc, subscriptions, sync_client, sync_finality,
 };
-
-use crate::telemetry::{self};
 use avail_subxt::primitives::Header;
 use kate_recovery::com::AppData;
 use libp2p::{multiaddr::Protocol, Multiaddr};
@@ -152,7 +151,8 @@ pub async fn run(
 	info!("Running Avail light client version: {version}");
 	info!("Using config: {cfg:?}");
 
-	let db = init_db(&cfg.avail_path, false).context("Cannot initialize database")?;
+	let db = init_db(&cfg.avail_path, false).context("Cannot initialize database at run")?;
+
 	// If in fat client mode, enable deleting local Kademlia records
 	// This is a fat client memory optimization
 	let kad_remove_local_record = cfg.block_matrix_partition.is_some();
@@ -319,21 +319,20 @@ pub async fn run(
 		match callback_pointer_option {
 			Some(callback_ptr) => {
 				let callback: FfiCallback = unsafe { std::mem::transmute(callback_ptr) };
-				tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+				tokio::task::spawn(api::v2::ffi_api::c_ffi::call_callbacks(
 					api::v2::types::Topic::HeaderVerified,
 					message_tx.subscribe(),
 					callback,
 				));
 				if let Some(sender) = block_tx.as_ref() {
-					tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+					tokio::task::spawn(api::v2::ffi_api::c_ffi::call_callbacks(
 						api::v2::types::Topic::ConfidenceAchieved,
 						sender.subscribe(),
 						callback,
 					));
 				}
-
 				if let Some(data_rx) = data_rx {
-					tokio::task::spawn(api::v2::ffi_api::call_callbacks(
+					tokio::task::spawn(api::v2::ffi_api::c_ffi::call_callbacks(
 						api::v2::types::Topic::DataVerified,
 						data_rx,
 						callback,
