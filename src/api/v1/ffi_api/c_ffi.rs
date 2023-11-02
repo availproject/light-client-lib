@@ -5,10 +5,10 @@ use super::common;
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async unsafe extern "C" fn startLightNode(cfg: *mut u8) -> bool {
+pub async unsafe extern "C" fn startLightNode(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-	common::start_light_node(cfg).await;
-	return true;
+	let resp = common::start_light_node(cfg).await;
+	resp.as_ptr()
 }
 
 #[allow(non_snake_case)]

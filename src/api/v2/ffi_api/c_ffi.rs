@@ -1,5 +1,4 @@
 use crate::{api::common::str_ptr_to_config, light_client_commons::run};
-use anyhow::anyhow;
 use std::{ffi::CString, fmt::Display};
 
 use tokio::sync::broadcast;
@@ -19,24 +18,16 @@ use super::common::{get_startus_v2, submit_transaction};
 pub async unsafe extern "C" fn startLightNodeWithCallback(
 	cfg: *mut u8,
 	ffi_callback: *const FfiCallback,
-) -> bool {
-	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
+) -> *const u8 {
+	let (error_sender, _) = channel::<anyhow::Error>(1);
 	let cfg = str_ptr_to_config(cfg);
-
 	let res = run(error_sender, cfg, false, true, false, Some(ffi_callback)).await;
 
 	if let Err(error) = res {
-		error!("{error}");
+		return error.root_cause().to_string().as_ptr();
 	} else {
-		return true;
+		return "".as_ptr();
 	};
-
-	let error = match error_receiver.recv().await {
-		Some(error) => error,
-		None => anyhow!("Failed to receive error message"),
-	};
-	error!("Error: {}", error);
-	return false;
 }
 #[allow(non_snake_case)]
 #[no_mangle]

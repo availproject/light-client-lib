@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use avail_core::AppId;
 use clap::{command, Parser};
+use tracing::error;
 
 use crate::consts::{
 	APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_LENGTH_CF, BLOCK_HEADER_CF,
@@ -401,7 +402,7 @@ pub async fn run(
 		))
 		.await;
 		if err.is_err() {
-			panic!("Error {}", err.unwrap_err());
+			error!("Error {}", err.unwrap_err());
 		}
 	} else {
 		tokio::task::spawn(light_client::run(
