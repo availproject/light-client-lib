@@ -673,3 +673,8 @@ impl<'de> Deserialize<'de> for GrandpaJustification {
 pub struct ErrorResponse {
 	pub message: String,
 }
+
+#[derive(Clone, Debug, Decode, Deserialize, Serialize)]
+pub struct PublishMessageList {
+	pub message: Vec<String>,
+}

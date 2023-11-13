@@ -9,13 +9,16 @@ use rocksdb::DB;
 use std::sync::Arc;
 
 use crate::{
+	api::v2::types::PublishMessage,
 	consts::{
 		APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_KEY, BLOCKS_LIST_LENGTH_CF,
 		BLOCKS_LIST_LENGTH_KEY, BLOCK_HEADER_CF, CONFIDENCE_ACHIEVED_BLOCKS_CF,
-		CONFIDENCE_ACHIEVED_BLOCKS_KEY, CONFIDENCE_FACTOR_CF, LATEST_BLOCK_CF, LATEST_BLOCK_KEY,
-		STATE_CF,
+		CONFIDENCE_ACHIEVED_BLOCKS_KEY, CONFIDENCE_ACHIEVED_MESSAGE_CF,
+		CONFIDENCE_ACHIEVED_MESSAGE_KEY, CONFIDENCE_FACTOR_CF, DATA_VERIFIED_MESSAGE_CF,
+		DATA_VERIFIED_MESSAGE_KEY, HEADER_VERIFIED_MESSAGE_CF, HEADER_VERIFIED_MESSAGE_KEY,
+		LATEST_BLOCK_CF, LATEST_BLOCK_KEY, STATE_CF,
 	},
-	types::FinalitySyncCheckpoint,
+	types::{FinalitySyncCheckpoint, PublishMessageList},
 };
 
 const LAST_FULL_NODE_WS_KEY: &str = "last_full_node_ws";
@@ -234,19 +237,79 @@ pub fn store_latest_block_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
 	)
 	.context("Failed to write block header")
 }
-/// Stores block header into database under the given block number key
-pub fn store_confidence_achieved_blocks_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
+
+/// Stores publish message
+pub fn store_publish_message_in_db(
+	db: Arc<DB>,
+	message: PublishMessage,
+	column_family: String,
+	key: String,
+) -> Result<()> {
 	let handle = db
-		.cf_handle(CONFIDENCE_ACHIEVED_BLOCKS_CF)
+		.cf_handle(column_family.as_str())
 		.context("Failed to get cf handle")?;
+	let existing_message_option =
+		get_existing_published_message_list_from_db(db.clone(), column_family, key)
+			.context("failed to get confidence message");
+	let mut message_list: PublishMessageList;
+	match existing_message_option {
+		Ok(existing_message_option) => match existing_message_option {
+			Some(existing_message) => {
+				message_list = serde_json::from_str(existing_message.as_str()).unwrap();
+				message_list
+					.message
+					.push(serde_json::to_string(&message).unwrap());
+			},
+			None => {
+				message_list = PublishMessageList {
+					message: vec![serde_json::to_string(&message).unwrap()],
+				};
+			},
+		},
+		Err(_) => {
+			message_list = PublishMessageList {
+				message: vec![serde_json::to_string(&message).unwrap()],
+			};
+		},
+	};
 
 	db.put_cf(
 		&handle,
-		CONFIDENCE_ACHIEVED_BLOCKS_KEY.as_bytes(),
-		block_number.to_be_bytes(),
+		key.as_bytes(),
+		serde_json::to_string(&message_list).unwrap().as_bytes(),
 	)
-	.context("Failed to write block header")
+	.context("Failed to write confidence achieved message")
 }
+/// Stores block header into database under the given block number key
+pub fn store_confidence_achieved_message_in_db(db: Arc<DB>, message: PublishMessage) -> Result<()> {
+	store_publish_message_in_db(
+		db,
+		message,
+		CONFIDENCE_ACHIEVED_MESSAGE_CF.to_string(),
+		CONFIDENCE_ACHIEVED_MESSAGE_KEY.to_string(),
+	)
+}
+
+/// Stores block header into database under the given block number key
+pub fn store_data_verified_message_in_db(db: Arc<DB>, message: PublishMessage) -> Result<()> {
+	store_publish_message_in_db(
+		db,
+		message,
+		DATA_VERIFIED_MESSAGE_CF.to_string(),
+		DATA_VERIFIED_MESSAGE_KEY.to_string(),
+	)
+}
+
+/// Stores block header into database under the given block number key
+pub fn store_header_verified_message_in_db(db: Arc<DB>, message: PublishMessage) -> Result<()> {
+	store_publish_message_in_db(
+		db,
+		message,
+		HEADER_VERIFIED_MESSAGE_CF.to_string(),
+		HEADER_VERIFIED_MESSAGE_KEY.to_string(),
+	)
+}
+
 /// Stores block header into database under the given block number key
 pub fn store_blocks_list_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
 	let temp_db = db.clone();
@@ -271,6 +334,20 @@ pub fn store_blocks_list_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
 		.context("Failed to write block header");
 
 	return increment_blocks_list_length(db);
+}
+
+/// Stores block header into database under the given block number key
+pub fn store_confidence_achieved_blocks_in_db(db: Arc<DB>, block_number: u32) -> Result<()> {
+	let handle = db
+		.cf_handle(CONFIDENCE_ACHIEVED_BLOCKS_CF)
+		.context("Failed to get cf handle")?;
+
+	db.put_cf(
+		&handle,
+		CONFIDENCE_ACHIEVED_BLOCKS_KEY.as_bytes(),
+		block_number.to_be_bytes(),
+	)
+	.context("Failed to write block header")
 }
 
 /// Stores block header into database under the given block number key
@@ -364,4 +441,47 @@ pub fn get_blocks_list_length(db: Arc<DB>) -> Result<Option<u32>> {
 				.map(u32::from_be_bytes)
 		})
 		.transpose()
+}
+
+pub fn get_existing_published_message_list_from_db(
+	db: Arc<DB>,
+	column_family: String,
+	key: String,
+) -> Result<Option<String>> {
+	let cf_handle = db
+		.cf_handle(column_family.as_str())
+		.context("Couldn't get column handle from db")?;
+
+	let result = db
+		.get_cf(&cf_handle, key.as_bytes())
+		.context("Couldn't get message from db")?;
+
+	let Some(result) = result else {
+		return Ok(None);
+	};
+
+	Ok(std::str::from_utf8(&result).map(String::from).map(Some)?)
+}
+
+pub fn get_data_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
+	get_existing_published_message_list_from_db(
+		db,
+		DATA_VERIFIED_MESSAGE_CF.to_string(),
+		DATA_VERIFIED_MESSAGE_KEY.to_string(),
+	)
+}
+pub fn get_header_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
+	get_existing_published_message_list_from_db(
+		db,
+		HEADER_VERIFIED_MESSAGE_CF.to_string(),
+		HEADER_VERIFIED_MESSAGE_KEY.to_string(),
+	)
+}
+
+pub fn get_confidence_achieved_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
+	get_existing_published_message_list_from_db(
+		db,
+		CONFIDENCE_ACHIEVED_MESSAGE_CF.to_string(),
+		CONFIDENCE_ACHIEVED_MESSAGE_KEY.to_string(),
+	)
 }

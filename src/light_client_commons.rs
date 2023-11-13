@@ -5,8 +5,9 @@ use tracing::error;
 
 use crate::consts::{
 	APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_LENGTH_CF, BLOCK_HEADER_CF,
-	CONFIDENCE_ACHIEVED_BLOCKS_CF, CONFIDENCE_FACTOR_CF, EXPECTED_NETWORK_VERSION, LATEST_BLOCK_CF,
-	STATE_CF,
+	CONFIDENCE_ACHIEVED_BLOCKS_CF, CONFIDENCE_ACHIEVED_MESSAGE_CF, CONFIDENCE_FACTOR_CF,
+	DATA_VERIFIED_MESSAGE_CF, EXPECTED_NETWORK_VERSION, HEADER_VERIFIED_MESSAGE_CF,
+	LATEST_BLOCK_CF, STATE_CF,
 };
 use crate::data::{self, store_last_full_node_ws_in_db};
 use crate::telemetry::{self};
@@ -77,6 +78,15 @@ pub fn init_db(path: &str, read_only: bool) -> Result<Arc<DB>> {
 	let mut blocks_list_length_cf_opts = Options::default();
 	blocks_list_length_cf_opts.set_max_write_buffer_number(16);
 
+	let mut confidence_achieved_message_cf_opts = Options::default();
+	confidence_achieved_message_cf_opts.set_max_write_buffer_number(16);
+
+	let mut header_verified_message_cf_opts = Options::default();
+	header_verified_message_cf_opts.set_max_write_buffer_number(16);
+
+	let mut data_verified_message_cf_opts = Options::default();
+	data_verified_message_cf_opts.set_max_write_buffer_number(16);
+
 	let cf_opts = vec![
 		ColumnFamilyDescriptor::new(CONFIDENCE_FACTOR_CF, confidence_cf_opts),
 		ColumnFamilyDescriptor::new(BLOCK_HEADER_CF, block_header_cf_opts),
@@ -89,6 +99,12 @@ pub fn init_db(path: &str, read_only: bool) -> Result<Arc<DB>> {
 		),
 		ColumnFamilyDescriptor::new(BLOCKS_LIST_CF, blocks_list_cf_opts),
 		ColumnFamilyDescriptor::new(BLOCKS_LIST_LENGTH_CF, blocks_list_length_cf_opts),
+		ColumnFamilyDescriptor::new(
+			CONFIDENCE_ACHIEVED_MESSAGE_CF,
+			confidence_achieved_message_cf_opts,
+		),
+		ColumnFamilyDescriptor::new(HEADER_VERIFIED_MESSAGE_CF, header_verified_message_cf_opts),
+		ColumnFamilyDescriptor::new(DATA_VERIFIED_MESSAGE_CF, data_verified_message_cf_opts),
 	];
 
 	let mut db_opts = Options::default();
