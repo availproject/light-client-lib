@@ -2,6 +2,10 @@ use crate::api::common::object_to_str;
 use crate::api::v2::transactions::{self, AvailSigner, Submit};
 use crate::api::v2::types::Error;
 use crate::consts::EXPECTED_NETWORK_VERSION;
+use crate::data::{
+	get_confidence_achieved_message_from_db, get_data_verified_message_from_db,
+	get_header_verified_message_from_db,
+};
 use crate::light_client_commons::init_db;
 use crate::rpc;
 use crate::types::{AvailSecretKey, RuntimeConfig};
@@ -53,4 +57,36 @@ pub async fn get_startus_v2(cfg: RuntimeConfig) -> String {
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let status = Status::new_from_db(&cfg, &rpc_client, db);
 	return object_to_str(&status);
+}
+
+pub fn get_confidence_message_list(cfg: RuntimeConfig) -> String {
+	let db = init_db(&cfg.clone().avail_path, true).unwrap();
+	match get_confidence_achieved_message_from_db(db) {
+		Ok(message_list_option) => match message_list_option {
+			Some(message_list) => message_list,
+			None => "[]".to_string(),
+		},
+		Err(err) => err.root_cause().to_string(),
+	}
+}
+
+pub fn get_data_verified_message_list(cfg: RuntimeConfig) -> String {
+	let db = init_db(&cfg.clone().avail_path, true).unwrap();
+	match get_data_verified_message_from_db(db) {
+		Ok(message_list_option) => match message_list_option {
+			Some(message_list) => message_list,
+			None => "[]".to_string(),
+		},
+		Err(err) => err.root_cause().to_string(),
+	}
+}
+pub fn get_header_verified_message_list(cfg: RuntimeConfig) -> String {
+	let db = init_db(&cfg.clone().avail_path, true).unwrap();
+	match get_header_verified_message_from_db(db) {
+		Ok(message_list_option) => match message_list_option {
+			Some(message_list) => message_list,
+			None => "[]".to_string(),
+		},
+		Err(err) => err.root_cause().to_string(),
+	}
 }

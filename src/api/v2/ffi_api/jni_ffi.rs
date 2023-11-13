@@ -10,7 +10,10 @@ use jni::{
 	JNIEnv,
 };
 
-use super::common::{get_startus_v2, submit_transaction};
+use super::common::{
+	get_confidence_message_list, get_data_verified_message_list, get_header_verified_message_list,
+	get_startus_v2, submit_transaction,
+};
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -51,6 +54,63 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	let cfg_input: String = unsafe { java_env_to_str(env.unsafe_clone(), cfg) };
 	let cfg: RuntimeConfig = load_config(cfg_input.clone()).unwrap();
 	let response = get_startus_v2(cfg).await;
+	let output = env
+		.new_string(response)
+		.expect("Couldn't create java string!");
+	output
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_getConfidenceMessageList<
+	'other_local_1,
+>(
+	env: JNIEnv<'other_local_1>,
+	_: JClass<'other_local_1>,
+	cfg: JString<'other_local_1>,
+) -> JString<'other_local_1> {
+	let cfg_input: String = unsafe { java_env_to_str(env.unsafe_clone(), cfg) };
+	let cfg: RuntimeConfig = load_config(cfg_input.clone()).unwrap();
+	let response = get_confidence_message_list(cfg);
+	let output = env
+		.new_string(response)
+		.expect("Couldn't create java string!");
+	output
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_getHeaderVerifiedMessageList<
+	'other_local_1,
+>(
+	env: JNIEnv<'other_local_1>,
+	_: JClass<'other_local_1>,
+	cfg: JString<'other_local_1>,
+) -> JString<'other_local_1> {
+	let cfg_input: String = unsafe { java_env_to_str(env.unsafe_clone(), cfg) };
+	let cfg: RuntimeConfig = load_config(cfg_input.clone()).unwrap();
+	let response = get_header_verified_message_list(cfg);
+	let output = env
+		.new_string(response)
+		.expect("Couldn't create java string!");
+	output
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_getDataVerifiedMessageList<
+	'other_local_1,
+>(
+	env: JNIEnv<'other_local_1>,
+	_: JClass<'other_local_1>,
+	cfg: JString<'other_local_1>,
+) -> JString<'other_local_1> {
+	let cfg_input: String = unsafe { java_env_to_str(env.unsafe_clone(), cfg) };
+	let cfg: RuntimeConfig = load_config(cfg_input.clone()).unwrap();
+	let response = get_data_verified_message_list(cfg);
 	let output = env
 		.new_string(response)
 		.expect("Couldn't create java string!");
