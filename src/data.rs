@@ -249,7 +249,7 @@ pub fn store_publish_message_in_db(
 		.cf_handle(column_family.as_str())
 		.context("Failed to get cf handle")?;
 	let existing_message_option =
-		get_existing_published_message_list_from_db(db.clone(), column_family, key)
+		get_existing_published_message_list_from_db(db.clone(), column_family, key.clone())
 			.context("failed to get confidence message");
 	let mut message_list: PublishMessageList;
 	match existing_message_option {
