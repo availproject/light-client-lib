@@ -3,13 +3,17 @@ use avail_core::AppId;
 use clap::{command, Parser};
 use tracing::error;
 
+use crate::api::v2::types::{PublishMessage, Topic};
 use crate::consts::{
 	APP_DATA_CF, BLOCKS_LIST_CF, BLOCKS_LIST_LENGTH_CF, BLOCK_HEADER_CF,
 	CONFIDENCE_ACHIEVED_BLOCKS_CF, CONFIDENCE_ACHIEVED_MESSAGE_CF, CONFIDENCE_FACTOR_CF,
 	DATA_VERIFIED_MESSAGE_CF, EXPECTED_NETWORK_VERSION, HEADER_VERIFIED_MESSAGE_CF,
 	LATEST_BLOCK_CF, STATE_CF,
 };
-use crate::data::{self, store_last_full_node_ws_in_db};
+use crate::data::{
+	self, store_confidence_achieved_message_in_db, store_data_verified_message_in_db,
+	store_header_verified_message_in_db, store_last_full_node_ws_in_db,
+};
 use crate::telemetry::{self};
 use crate::types::{self, Mode, RuntimeConfig, State};
 use crate::{
@@ -19,6 +23,7 @@ use avail_subxt::primitives::Header;
 use kate_recovery::com::AppData;
 use libp2p::{multiaddr::Protocol, Multiaddr};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
+use std::fmt::Display;
 use std::{
 	net::Ipv4Addr,
 	sync::{Arc, Mutex},
@@ -147,6 +152,7 @@ pub async fn run(
 	server_needed: bool,
 	await_run: bool,
 	set_parser: bool,
+	store_broadcasts_in_db: bool,
 	callback_pointer_option: Option<*const FfiCallback>,
 ) -> Result<(Arc<Mutex<State>>, Arc<DB>)> {
 	if set_parser {
@@ -283,6 +289,28 @@ pub async fn run(
 	} else {
 		(None, None)
 	};
+	if store_broadcasts_in_db {
+		tokio::task::spawn(store_publish_messages(
+			db.clone(),
+			api::v2::types::Topic::HeaderVerified,
+			message_tx.subscribe(),
+		));
+
+		if let Some(sender) = block_tx.as_ref() {
+			tokio::task::spawn(store_publish_messages(
+				db.clone(),
+				api::v2::types::Topic::ConfidenceAchieved,
+				sender.subscribe(),
+			));
+		}
+		let (_, data_reciever_for_db_dump) = broadcast::channel::<(u32, AppData)>(1 << 7);
+
+		tokio::task::spawn(store_publish_messages(
+			db.clone(),
+			api::v2::types::Topic::DataVerified,
+			data_reciever_for_db_dump,
+		));
+	}
 
 	if server_needed {
 		// Spawn tokio task which runs one http server for handling RPC
@@ -432,4 +460,48 @@ pub async fn run(
 	}
 
 	Ok((state, db))
+}
+
+pub async fn store_publish_messages<T: Clone + TryInto<PublishMessage>>(
+	db: Arc<DB>,
+	topic: Topic,
+	mut receiver: broadcast::Receiver<T>,
+) where
+	<T as TryInto<PublishMessage>>::Error: Display,
+{
+	let _db = db.clone();
+	loop {
+		let message = match receiver.recv().await {
+			Ok(value) => value,
+			Err(error) => {
+				error!(?topic, "Cannot receive message: {error}");
+				return;
+			},
+		};
+		let message: PublishMessage = match message.try_into() {
+			Ok(message) => message,
+			Err(error) => {
+				error!(?topic, "Cannot create message: {error}");
+				continue;
+			},
+		};
+
+		match message {
+			PublishMessage::HeaderVerified(_) => {
+				if topic == Topic::HeaderVerified {
+					let _ = store_header_verified_message_in_db(_db.clone(), message);
+				}
+			},
+			PublishMessage::ConfidenceAchieved(_) => {
+				if topic == Topic::ConfidenceAchieved {
+					let _ = store_confidence_achieved_message_in_db(_db.clone(), message);
+				}
+			},
+			PublishMessage::DataVerified(_) => {
+				if topic == Topic::DataVerified {
+					let _ = store_data_verified_message_in_db(_db.clone(), message);
+				}
+			},
+		}
+	}
 }

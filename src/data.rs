@@ -464,24 +464,39 @@ pub fn get_existing_published_message_list_from_db(
 }
 
 pub fn get_data_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
-	get_existing_published_message_list_from_db(
+	let res = get_existing_published_message_list_from_db(
 		db,
 		DATA_VERIFIED_MESSAGE_CF.to_string(),
 		DATA_VERIFIED_MESSAGE_KEY.to_string(),
 	)
+	.unwrap();
+	match res {
+		Some(_) => todo!(),
+		None => todo!(),
+	}
 }
 pub fn get_header_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
-	get_existing_published_message_list_from_db(
+	let res = get_existing_published_message_list_from_db(
 		db,
 		HEADER_VERIFIED_MESSAGE_CF.to_string(),
 		HEADER_VERIFIED_MESSAGE_KEY.to_string(),
 	)
+	.unwrap();
+	match res {
+		Some(_) => todo!(),
+		None => todo!(),
+	}
 }
 
 pub fn get_confidence_achieved_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
-	get_existing_published_message_list_from_db(
+	let res = get_existing_published_message_list_from_db(
 		db,
 		CONFIDENCE_ACHIEVED_MESSAGE_CF.to_string(),
 		CONFIDENCE_ACHIEVED_MESSAGE_KEY.to_string(),
 	)
+	.unwrap();
+	match res {
+		Some(_) => todo!(),
+		None => todo!(),
+	}
 }

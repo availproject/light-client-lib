@@ -21,7 +21,16 @@ pub async unsafe extern "C" fn startLightNodeWithCallback(
 ) -> *const u8 {
 	let (error_sender, _) = channel::<anyhow::Error>(1);
 	let cfg = str_ptr_to_config(cfg);
-	let res = run(error_sender, cfg, false, true, false, Some(ffi_callback)).await;
+	let res = run(
+		error_sender,
+		cfg,
+		false,
+		true,
+		false,
+		false,
+		Some(ffi_callback),
+	)
+	.await;
 
 	if let Err(error) = res {
 		return error.root_cause().to_string().as_ptr();

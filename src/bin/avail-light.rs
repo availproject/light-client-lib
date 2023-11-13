@@ -26,7 +26,7 @@ pub async fn main() -> Result<()> {
 	let cfg: RuntimeConfig = confy::load_path(config_path)
 		.context(format!("Failed to load configuration from {config_path}"))?;
 
-	if let Err(error) = run(error_sender, cfg, true, false, true, None).await {
+	if let Err(error) = run(error_sender, cfg, true, false, true, false, None).await {
 		error!("{error}");
 		return Err(error);
 	};
