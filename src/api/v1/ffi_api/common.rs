@@ -16,7 +16,7 @@ use crate::{
 pub async fn start_light_node(cfg: RuntimeConfig) -> String {
 	let (error_sender, _) = channel::<anyhow::Error>(1);
 
-	let res = run(error_sender, cfg, false, true, false, false, None).await;
+	let res = run(error_sender, cfg, false, true, false, true, None).await;
 
 	if let Err(error) = res {
 		error!("{error}");

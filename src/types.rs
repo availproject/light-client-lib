@@ -676,5 +676,5 @@ pub struct ErrorResponse {
 
 #[derive(Clone, Debug, Decode, Deserialize, Serialize)]
 pub struct PublishMessageList {
-	pub message: Vec<String>,
+	pub message_list: Vec<String>,
 }

@@ -31,6 +31,10 @@ const uint8_t *getStatusV2(uint8_t *cfg);
 
 JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_startNode
   (JNIEnv *, jclass, jstring);
+
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_startNodeWithBroadcastsToDb
+  (JNIEnv *, jclass, jstring);
+
 JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_latestBlock
   (JNIEnv *, jclass, jstring);
 JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_confidence
@@ -43,3 +47,11 @@ JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getS
 
 JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_startNodeWithCallback
   (JNIEnv *, jclass, jstring, jobject);
+
+
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getConfidenceMessageList
+  (JNIEnv *, jclass, jstring);
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getHeaderVerifiedMessageList
+  (JNIEnv *, jclass, jstring);
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getDataVerifiedMessageList
+  (JNIEnv *, jclass, jstring);

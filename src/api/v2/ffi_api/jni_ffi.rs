@@ -3,12 +3,16 @@ use crate::{
 		common::{java_env_to_str, load_config},
 		v2::types::Transaction,
 	},
+	light_client_commons::run,
 	types::RuntimeConfig,
 };
 use jni::{
 	objects::{JClass, JString},
 	JNIEnv,
 };
+use tracing::error;
+
+use tokio::sync::mpsc::channel;
 
 use super::common::{
 	get_confidence_message_list, get_data_verified_message_list, get_header_verified_message_list,
@@ -114,6 +118,32 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	let output = env
 		.new_string(response)
 		.expect("Couldn't create java string!");
+	output
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async fn Java_com_example_availlibrary_AvailLightClientLib_startNodeWithBroadcastsToDb<
+	'local,
+>(
+	env: JNIEnv<'local>,
+	_: JClass<'local>,
+	cfg: JString<'local>,
+) -> JString<'local> {
+	let cfg_input: String = unsafe { java_env_to_str(env.unsafe_clone(), cfg) };
+	let cfg: RuntimeConfig = load_config(cfg_input.clone()).unwrap();
+	let (error_sender, _) = channel::<anyhow::Error>(1);
+
+	let res = run(error_sender, cfg, false, true, false, true, None).await;
+	let msg;
+	if let Err(error) = res {
+		error!("{error}");
+		msg = error.root_cause().to_string();
+	} else {
+		msg = String::from("");
+	}
+	let output = env.new_string(msg).expect("Couldn't create java string!");
 	output
 }
 // pub async fn call_jni_callbacks<T: Clone + TryInto<PublishMessage>>(

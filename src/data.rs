@@ -249,7 +249,7 @@ pub fn store_publish_message_in_db(
 		.cf_handle(column_family.as_str())
 		.context("Failed to get cf handle")?;
 	let existing_message_option =
-		get_existing_published_message_list_from_db(db.clone(), column_family, key.clone())
+		get_existing_published_message_list_from_db(db.clone(), column_family.clone(), key.clone())
 			.context("failed to get confidence message");
 	let mut message_list: PublishMessageList;
 	match existing_message_option {
@@ -257,26 +257,25 @@ pub fn store_publish_message_in_db(
 			Some(existing_message) => {
 				message_list = serde_json::from_str(existing_message.as_str()).unwrap();
 				message_list
-					.message
+					.message_list
 					.push(serde_json::to_string(&message).unwrap());
 			},
 			None => {
 				message_list = PublishMessageList {
-					message: vec![serde_json::to_string(&message).unwrap()],
+					message_list: vec![serde_json::to_string(&message).unwrap()],
 				};
 			},
 		},
 		Err(_) => {
 			message_list = PublishMessageList {
-				message: vec![serde_json::to_string(&message).unwrap()],
+				message_list: vec![serde_json::to_string(&message).unwrap()],
 			};
 		},
 	};
-
 	db.put_cf(
 		&handle,
 		key.as_bytes(),
-		serde_json::to_string(&message_list).unwrap().as_bytes(),
+		serde_json::to_string(&message_list).unwrap(),
 	)
 	.context("Failed to write confidence achieved message")
 }
@@ -468,24 +467,18 @@ pub fn get_data_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> 
 		db,
 		DATA_VERIFIED_MESSAGE_CF.to_string(),
 		DATA_VERIFIED_MESSAGE_KEY.to_string(),
-	)
-	.unwrap();
-	match res {
-		Some(_) => todo!(),
-		None => todo!(),
-	}
+	);
+
+	res
 }
 pub fn get_header_verified_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
 	let res = get_existing_published_message_list_from_db(
 		db,
 		HEADER_VERIFIED_MESSAGE_CF.to_string(),
 		HEADER_VERIFIED_MESSAGE_KEY.to_string(),
-	)
-	.unwrap();
-	match res {
-		Some(_) => todo!(),
-		None => todo!(),
-	}
+	);
+
+	res
 }
 
 pub fn get_confidence_achieved_message_from_db(db: Arc<DB>) -> Result<Option<String>> {
@@ -493,10 +486,7 @@ pub fn get_confidence_achieved_message_from_db(db: Arc<DB>) -> Result<Option<Str
 		db,
 		CONFIDENCE_ACHIEVED_MESSAGE_CF.to_string(),
 		CONFIDENCE_ACHIEVED_MESSAGE_KEY.to_string(),
-	)
-	.unwrap();
-	match res {
-		Some(_) => todo!(),
-		None => todo!(),
-	}
+	);
+
+	res
 }

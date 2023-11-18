@@ -1,4 +1,4 @@
-use crate::api::common::object_to_str;
+use crate::api::common::{object_to_str, string_to_error_resp_json};
 use crate::api::v2::transactions::{self, AvailSigner, Submit};
 use crate::api::v2::types::Error;
 use crate::consts::EXPECTED_NETWORK_VERSION;
@@ -8,7 +8,7 @@ use crate::data::{
 };
 use crate::light_client_commons::init_db;
 use crate::rpc;
-use crate::types::{AvailSecretKey, RuntimeConfig};
+use crate::types::{AvailSecretKey, ErrorResponse, RuntimeConfig};
 
 use std::sync::Arc;
 use tracing::error;
@@ -64,9 +64,9 @@ pub fn get_confidence_message_list(cfg: RuntimeConfig) -> String {
 	match get_confidence_achieved_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
 			Some(message_list) => message_list,
-			None => "[]".to_string(),
+			None => "{\'message_list\':[]}".to_string(),
 		},
-		Err(err) => err.root_cause().to_string(),
+		Err(err) => string_to_error_resp_json(err.root_cause().to_string()),
 	}
 }
 
@@ -75,9 +75,9 @@ pub fn get_data_verified_message_list(cfg: RuntimeConfig) -> String {
 	match get_data_verified_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
 			Some(message_list) => message_list,
-			None => "[]".to_string(),
+			None => "{\'message_list\':[]}".to_string(),
 		},
-		Err(err) => err.root_cause().to_string(),
+		Err(err) => string_to_error_resp_json(err.root_cause().to_string()),
 	}
 }
 pub fn get_header_verified_message_list(cfg: RuntimeConfig) -> String {
@@ -85,8 +85,8 @@ pub fn get_header_verified_message_list(cfg: RuntimeConfig) -> String {
 	match get_header_verified_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
 			Some(message_list) => message_list,
-			None => "[]".to_string(),
+			None => "{\'message_list\':[]}".to_string(),
 		},
-		Err(err) => err.root_cause().to_string(),
+		Err(err) => string_to_error_resp_json(err.root_cause().to_string()),
 	}
 }

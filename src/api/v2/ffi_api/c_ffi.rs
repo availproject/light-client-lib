@@ -10,7 +10,10 @@ use crate::{
 	light_client_commons::FfiCallback,
 };
 
-use super::common::{get_startus_v2, submit_transaction};
+use super::common::{
+	get_confidence_message_list, get_header_verified_message_list, get_startus_v2,
+	submit_transaction,
+};
 
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -27,7 +30,7 @@ pub async unsafe extern "C" fn startLightNodeWithCallback(
 		false,
 		true,
 		false,
-		false,
+		true,
 		Some(ffi_callback),
 	)
 	.await;
@@ -67,6 +70,22 @@ pub async unsafe extern "C" fn submitTransaction(
 pub async extern "C" fn getStatusV2(cfg: *mut u8) -> *mut u8 {
 	let cfg = str_ptr_to_config(cfg);
 	get_startus_v2(cfg).await.as_mut_ptr()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getConfidenceMessageList(cfg: *mut u8) -> *mut u8 {
+	let cfg = str_ptr_to_config(cfg);
+	get_confidence_message_list(cfg).as_mut_ptr()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
+	let cfg = str_ptr_to_config(cfg);
+	get_header_verified_message_list(cfg).as_mut_ptr()
 }
 
 pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(
