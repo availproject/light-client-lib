@@ -8,7 +8,7 @@ use crate::data::{
 };
 use crate::light_client_commons::init_db;
 use crate::rpc;
-use crate::types::{AvailSecretKey, ErrorResponse, RuntimeConfig};
+use crate::types::{AvailSecretKey, RuntimeConfig};
 
 use std::sync::Arc;
 use tracing::error;
