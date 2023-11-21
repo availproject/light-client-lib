@@ -20,20 +20,24 @@ use crate::{
 		is_block_header_in_db, is_confidence_in_db, store_block_header_in_db,
 		store_confidence_in_db,
 	},
-	network::Client,
-	proof, rpc,
-	types::{BlockVerified, State, SyncClientConfig},
+	network::{
+		p2p::Client as P2pClient,
+		rpc::{self, Client as RpcClient},
+	},
+	proof,
+	types::{BlockVerified, OptionBlockRange, State, SyncClientConfig},
 	utils::{calculate_confidence, extract_app_lookup, extract_kate},
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use avail_subxt::{avail, primitives::Header as DaHeader, utils::H256};
+use avail_subxt::{primitives::Header as DaHeader, utils::H256};
 use dusk_plonk::commitment_scheme::kzg10::PublicParameters;
 use kate_recovery::{commitments, matrix::Dimensions};
 use kate_recovery::{data::Cell, matrix::Position};
 use mockall::automock;
 use rocksdb::DB;
 use std::{
+	ops::Range,
 	sync::{Arc, Mutex},
 	time::Instant,
 };
@@ -55,16 +59,15 @@ pub trait SyncClient {
 		positions: &[Position],
 		block_number: u32,
 	) -> (Vec<Cell>, Vec<Position>);
-	fn get_client(&self) -> avail::Client;
 }
 #[derive(Clone)]
 struct SyncClientImpl {
 	db: Arc<DB>,
-	network_client: Client,
-	rpc_client: avail::Client,
+	network_client: P2pClient,
+	rpc_client: RpcClient,
 }
 
-pub fn new(db: Arc<DB>, network_client: Client, rpc_client: avail::Client) -> impl SyncClient {
+pub fn new(db: Arc<DB>, network_client: P2pClient, rpc_client: RpcClient) -> impl SyncClient {
 	SyncClientImpl {
 		db,
 		network_client,
@@ -80,7 +83,8 @@ impl SyncClient for SyncClientImpl {
 	}
 
 	async fn get_header_by_block_number(&self, block_number: u32) -> Result<(DaHeader, H256)> {
-		rpc::get_header_by_block_number(&self.rpc_client, block_number)
+		self.rpc_client
+			.get_header_by_block_number(block_number)
 			.await
 			.with_context(|| format!("Failed to get block {block_number} by block number"))
 	}
@@ -101,7 +105,7 @@ impl SyncClient for SyncClientImpl {
 	}
 
 	async fn get_kate_proof(&self, hash: H256, positions: &[Position]) -> Result<Vec<Cell>> {
-		rpc::get_kate_proof(&self.rpc_client, hash, positions).await
+		self.rpc_client.request_kate_proof(hash, positions).await
 	}
 
 	async fn insert_cells_into_dht(&self, block: u32, cells: Vec<Cell>) -> f32 {
@@ -118,9 +122,6 @@ impl SyncClient for SyncClientImpl {
 			.fetch_cells_from_dht(block_number, positions)
 			.await
 	}
-	fn get_client(&self) -> avail::Client {
-		self.rpc_client.clone()
-	}
 }
 
 async fn process_block(
@@ -136,6 +137,7 @@ async fn process_block(
 	{
 		// TODO: If block header storing fails, that block will be skipped upon restart
 		// Better option would be to check for confidence
+		info!("Block header {block_number} already in DB");
 		return Ok(());
 	};
 
@@ -254,24 +256,28 @@ async fn process_block(
 pub async fn run(
 	sync_client: impl SyncClient,
 	cfg: SyncClientConfig,
-	start_block: u32,
-	end_block: u32,
+	sync_range: Range<u32>,
 	pp: Arc<PublicParameters>,
 	block_verified_sender: Option<broadcast::Sender<BlockVerified>>,
 	state: Arc<Mutex<State>>,
 ) {
-	if start_block >= end_block {
-		warn!("There are no blocks to sync from {start_block} to {end_block}");
+	if sync_range.is_empty() {
+		warn!("There are no blocks to sync for range {sync_range:?}");
 		return;
 	}
-	let sync_blocks_depth = end_block - start_block;
+	let sync_blocks_depth = sync_range.len();
 	if sync_blocks_depth >= 250 {
 		warn!("In order to process {sync_blocks_depth} blocks behind latest block, connected nodes needs to be archive nodes!");
 	}
 
-	info!("Syncing block headers from {start_block} to {end_block}");
-	for block_number in start_block..=end_block {
-		info!("Testing block {block_number}!");
+	info!("Syncing block headers for {sync_range:?}");
+	for block_number in sync_range {
+		{
+			let mut state = state.lock().unwrap();
+			state.sync_latest.replace(block_number);
+			// TODO: Add proper header verification on sync
+			state.sync_header_verified.set(block_number);
+		}
 
 		// TODO: Should we handle unprocessed blocks differently?
 		let block_verified_sender = block_verified_sender.clone();
@@ -281,15 +287,13 @@ pub async fn run(
 		{
 			error!(block_number, "Cannot process block: {error:#}");
 		} else {
-			state
-				.lock()
-				.unwrap()
-				.set_sync_confidence_achieved(block_number);
+			let mut state = state.lock().unwrap();
+			state.sync_confidence_achieved.set(block_number);
 		}
 	}
 
 	if block_verified_sender.is_none() {
-		state.lock().unwrap().set_synced(true);
+		state.lock().unwrap().synced.replace(true);
 	}
 }
 
@@ -307,13 +311,13 @@ mod tests {
 		config::substrate::Digest,
 	};
 	use hex_literal::hex;
-	use kate_recovery::testnet;
+	use kate_recovery::couscous;
 	use mockall::predicate::eq;
 
 	#[tokio::test]
 	pub async fn test_process_blocks_without_rpc() {
 		let (block_tx, _) = broadcast::channel::<types::BlockVerified>(10);
-		let pp = Arc::new(testnet::public_params(1024));
+		let pp = Arc::new(couscous::public_params());
 		let mut cfg = SyncClientConfig::from(&RuntimeConfig::default());
 		cfg.disable_rpc = true;
 		let mut mock_client = MockSyncClient::new();
@@ -446,7 +450,7 @@ mod tests {
 	#[tokio::test]
 	pub async fn test_process_blocks_with_rpc() {
 		let (block_tx, _) = broadcast::channel::<types::BlockVerified>(10);
-		let pp = Arc::new(testnet::public_params(1024));
+		let pp = Arc::new(couscous::public_params());
 		let cfg = SyncClientConfig::from(&RuntimeConfig::default());
 		let mut mock_client = MockSyncClient::new();
 		let header: DaHeader = DaHeader {
@@ -580,7 +584,7 @@ mod tests {
 	#[tokio::test]
 	pub async fn test_header_in_dbstore() {
 		let (block_tx, _) = broadcast::channel::<types::BlockVerified>(10);
-		let pp = Arc::new(testnet::public_params(1024));
+		let pp = Arc::new(couscous::public_params());
 		let cfg = SyncClientConfig::from(&RuntimeConfig::default());
 		let mut mock_client = MockSyncClient::new();
 		mock_client

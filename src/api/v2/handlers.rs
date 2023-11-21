@@ -1,16 +1,20 @@
 use super::{
 	transactions,
 	types::{
-		Error, Status, SubmitResponse, Subscription, SubscriptionId, Transaction, Version,
-		WsClients,
+		block_status, filter_fields, Block, BlockStatus, DataQuery, DataResponse, DataTransaction,
+		Error, FieldsQueryParameter, Header, Status, SubmitResponse, Subscription, SubscriptionId,
+		Transaction, Version, WsClients,
 	},
 	ws,
 };
 use crate::{
-	api::v2::types::InternalServerError,
-	rpc::Node,
+	api::v2::types::{ErrorCode, InternalServerError},
+	data::Database,
+	network::rpc::Node,
 	types::{RuntimeConfig, State},
+	utils::calculate_confidence,
 };
+use anyhow::anyhow;
 use hyper::StatusCode;
 use std::{
 	convert::Infallible,
@@ -36,10 +40,11 @@ pub async fn submit(
 	if matches!(&transaction, Transaction::Data(_)) && !submitter.has_signer() {
 		return Err(Error::not_found());
 	};
-	submitter.submit(transaction).await.map_err(|error| {
-		error!(%error, "Submit transaction failed");
-		Error::internal_server_error(error)
-	})
+
+	submitter
+		.submit(transaction)
+		.await
+		.map_err(Error::internal_server_error)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -74,6 +79,112 @@ pub async fn ws(
 pub fn status(config: RuntimeConfig, node: Node, state: Arc<Mutex<State>>) -> impl Reply {
 	let state = state.lock().expect("Lock should be acquired");
 	Status::new(&config, &node, &state)
+}
+
+pub fn log_internal_server_error(result: Result<impl Reply, Error>) -> Result<impl Reply, Error> {
+	if let Err(Error {
+		error_code: ErrorCode::InternalServerError,
+		cause: Some(error),
+		message,
+		..
+	}) = result.as_ref()
+	{
+		error!("{message}: {error:#}");
+	}
+	result
+}
+
+pub async fn block(
+	block_number: u32,
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> Result<impl Reply, Error> {
+	let state = state.lock().expect("Lock should be acquired");
+
+	let Some(block_status) = block_status(&config.sync_start_block, &state, block_number) else {
+		return Err(Error::not_found());
+	};
+
+	let confidence = db
+		.get_confidence(block_number)
+		.map_err(Error::internal_server_error)?
+		.map(calculate_confidence);
+
+	Ok(Block::new(block_status, confidence))
+}
+
+pub async fn block_header(
+	block_number: u32,
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> Result<Header, Error> {
+	let state = state.lock().expect("Lock should be acquired");
+
+	let Some(block_status) = block_status(&config.sync_start_block, &state, block_number) else {
+		return Err(Error::not_found());
+	};
+
+	if matches!(
+		block_status,
+		BlockStatus::Unavailable | BlockStatus::Pending | BlockStatus::VerifyingHeader
+	) {
+		return Err(Error::bad_request_unknown("Block header is not available"));
+	};
+
+	db.get_header(block_number)
+		.and_then(|header| header.ok_or_else(|| anyhow!("Header not found")))
+		.and_then(|header| header.try_into())
+		.map_err(Error::internal_server_error)
+}
+
+pub async fn block_data(
+	block_number: u32,
+	query: DataQuery,
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> Result<DataResponse, Error> {
+	let state = state.lock().expect("Lock should be acquired");
+
+	let Some(app_id) = config.app_id else {
+		return Err(Error::not_found());
+	};
+
+	let Some(block_status) = block_status(&config.sync_start_block, &state, block_number) else {
+		return Err(Error::not_found());
+	};
+
+	if block_status != BlockStatus::Finished {
+		return Err(Error::bad_request_unknown("Block data is not available"));
+	};
+
+	let data = db
+		.get_data(app_id, block_number)
+		.map_err(Error::internal_server_error)?;
+
+	let Some(data) = data else {
+		return Ok(DataResponse {
+			block_number,
+			data_transactions: vec![],
+		});
+	};
+
+	let mut data_transactions: Vec<DataTransaction> = data
+		.into_iter()
+		.map(DataTransaction::try_from)
+		.collect::<anyhow::Result<_>>()
+		.map_err(Error::internal_server_error)?;
+
+	if let Some(FieldsQueryParameter(fields)) = &query.fields {
+		filter_fields(&mut data_transactions, fields);
+	}
+
+	Ok(DataResponse {
+		block_number,
+		data_transactions,
+	})
 }
 
 pub async fn handle_rejection(error: Rejection) -> Result<impl Reply, Rejection> {

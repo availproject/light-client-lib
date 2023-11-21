@@ -1,6 +1,6 @@
 //! Column family names and other constants.
 
-use crate::rpc::ExpectedVersion;
+use crate::network::rpc::ExpectedVersion;
 
 /// Column family for confidence factor
 pub const CONFIDENCE_FACTOR_CF: &str = "avail_light_confidence_factor_cf";
@@ -57,6 +57,6 @@ pub const DATA_VERIFIED_MESSAGE_KEY: &str = "data_verified_message_key";
 
 /// Expected network version
 pub const EXPECTED_NETWORK_VERSION: ExpectedVersion = ExpectedVersion {
-	version: "1.7",
+	version: "1.8",
 	spec_name: "data-avail",
 };

@@ -1,9 +1,11 @@
 use crate::{
-	network::Client,
+	network::{
+		p2p::Client,
+		rpc::{self, Event},
+	},
 	telemetry::{MetricValue, Metrics},
 	types::{self, Delay},
 };
-use avail_subxt::primitives::Header;
 use kate_recovery::matrix::Partition;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -48,16 +50,21 @@ impl Default for CrawlConfig {
 }
 
 pub async fn run(
-	mut message_rx: broadcast::Receiver<(Header, Instant)>,
+	mut message_rx: broadcast::Receiver<Event>,
 	network_client: Client,
 	delay: u64,
 	metrics: Arc<impl Metrics>,
 	mode: CrawlMode,
 ) {
 	info!("Starting crawl client...");
+
 	let delay = Delay(Some(Duration::from_secs(delay)));
 
-	while let Ok((header, received_at)) = message_rx.recv().await {
+	while let Ok(rpc::Event::HeaderUpdate {
+		header,
+		received_at,
+	}) = message_rx.recv().await
+	{
 		let block = match types::BlockVerified::try_from((header, None)) {
 			Ok(block) => block,
 			Err(error) => {
@@ -68,6 +75,12 @@ pub async fn run(
 
 		if let Some(seconds) = delay.sleep_duration(received_at) {
 			info!("Sleeping for {seconds:?} seconds");
+			if let Err(error) = metrics
+				.record(MetricValue::CrawlBlockDelay(seconds.as_secs_f64()))
+				.await
+			{
+				error!("Cannot record crawl block delay: {}", error);
+			}
 			tokio::time::sleep(seconds).await;
 		}
 		let block_number = block.block_num;

@@ -8,17 +8,14 @@
 //! * `/v1/confidence/{block_number}` - returns calculated confidence for a given block number
 //! * `/v1/appdata/{block_number}` - returns decoded extrinsic data for configured app_id and given block number
 
-#[cfg(feature = "api-v2")]
 use crate::api::v2;
 use crate::{
 	api::v1,
-	rpc::Node,
+	network::rpc::{self, Node},
 	types::{RuntimeConfig, State},
 };
 
 use anyhow::Context;
-use avail_subxt::avail;
-use rand::{thread_rng, Rng};
 use rocksdb::DB;
 use std::{
 	net::SocketAddr,
@@ -35,15 +32,15 @@ pub struct Server {
 	pub version: String,
 	pub network_version: String,
 	pub node: Node,
-	pub node_client: avail::Client,
-	#[cfg(feature = "api-v2")]
+	pub node_client: rpc::Client,
 	pub ws_clients: v2::types::WsClients,
 }
 
 fn health_route() -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
 	warp::head()
+		.or(warp::get())
 		.and(warp::path("health"))
-		.map(|| warp::reply::with_status("", warp::http::StatusCode::OK))
+		.map(|_| warp::reply::with_status("", warp::http::StatusCode::OK))
 }
 
 
@@ -58,12 +55,7 @@ impl Server {
 			..
 		} = self.cfg.clone();
 
-		let port = (port.1 > 0)
-			.then(|| thread_rng().gen_range(port.0..=port.1))
-			.unwrap_or(port.0);
-
 		let v1_api = v1::routes(self.db.clone(), app_id, self.state.clone());
-		#[cfg(feature = "api-v2")]
 		let v2_api = v2::routes(
 			self.version.clone(),
 			self.network_version.clone(),
@@ -72,6 +64,7 @@ impl Server {
 			self.cfg,
 			self.node_client.clone(),
 			self.ws_clients.clone(),
+			crate::data::RocksDB(self.db.clone()),
 		);
 
 		let cors = warp::cors()
@@ -79,10 +72,7 @@ impl Server {
 			.allow_header("content-type")
 			.allow_methods(vec!["GET", "POST", "DELETE"]);
 
-		let routes = health_route().or(v1_api);
-		#[cfg(feature = "api-v2")]
-		let routes = routes.or(v2_api);
-		let routes = routes.with(cors);
+		let routes = health_route().or(v1_api).or(v2_api).with(cors);
 
 		let addr = SocketAddr::from_str(format!("{host}:{port}").as_str())
 			.context("Unable to parse host address from config")

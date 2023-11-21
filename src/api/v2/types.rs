@@ -14,7 +14,6 @@ use sp_core::{blake2_256, H256};
 use std::{
 	collections::{HashMap, HashSet},
 	sync::Arc,
-	time::Instant,
 };
 use tokio::sync::{mpsc::UnboundedSender, RwLock};
 use uuid::Uuid;
@@ -25,8 +24,10 @@ use warp::{
 
 use crate::{
 	data::{get_blocks_list, get_confidence_achieved_blocks},
-	rpc::Node,
-	types::{self, block_matrix_partition_format, BlockVerified, RuntimeConfig, State},
+	network::rpc::{Event as RpcEvent, Node},
+	types::{
+		self, block_matrix_partition_format, BlockVerified, OptionBlockRange, RuntimeConfig, State,
+	},
 	utils::decode_app_data,
 };
 
@@ -263,6 +264,83 @@ pub struct HeaderMessage {
 	header: Header,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum BlockStatus {
+	Unavailable,
+	Pending,
+	VerifyingHeader,
+	VerifyingConfidence,
+	VerifyingData,
+	Finished,
+}
+
+pub fn block_status(
+	sync_start_block: &Option<u32>,
+	state: &State,
+	block_number: u32,
+) -> Option<BlockStatus> {
+	if block_number > state.latest {
+		return None;
+	}
+
+	let first_block = state.header_verified.first().unwrap_or(state.latest);
+	let first_sync_block = sync_start_block.unwrap_or(first_block);
+
+	if block_number < first_sync_block {
+		return Some(BlockStatus::Unavailable);
+	}
+
+	if block_number < first_block {
+		if state.sync_data_verified.contains(block_number) {
+			return Some(BlockStatus::Finished);
+		}
+		if state.sync_confidence_achieved.contains(block_number) {
+			return Some(BlockStatus::VerifyingData);
+		}
+		if state.sync_header_verified.contains(block_number) {
+			return Some(BlockStatus::VerifyingConfidence);
+		}
+		let is_sync_latest = state.sync_latest.map(|latest| block_number == latest);
+		if is_sync_latest.unwrap_or(false) {
+			return Some(BlockStatus::VerifyingHeader);
+		}
+	} else {
+		if state.data_verified.contains(block_number) {
+			return Some(BlockStatus::Finished);
+		}
+		if state.confidence_achieved.contains(block_number) {
+			return Some(BlockStatus::VerifyingData);
+		}
+		if state.header_verified.contains(block_number) {
+			return Some(BlockStatus::VerifyingConfidence);
+		}
+		if state.latest == block_number {
+			return Some(BlockStatus::VerifyingHeader);
+		}
+	}
+
+	Some(BlockStatus::Pending)
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct Block {
+	pub status: BlockStatus,
+	pub confidence: Option<f64>,
+}
+
+impl Block {
+	pub fn new(status: BlockStatus, confidence: Option<f64>) -> Self {
+		Self { status, confidence }
+	}
+}
+
+impl Reply for Block {
+	fn into_response(self) -> warp::reply::Response {
+		warp::reply::json(&self).into_response()
+	}
+}
+
 impl TryFrom<avail_subxt::primitives::Header> for HeaderMessage {
 	type Error = anyhow::Error;
 
@@ -276,13 +354,19 @@ impl TryFrom<avail_subxt::primitives::Header> for HeaderMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct Header {
+pub struct Header {
 	hash: H256,
 	parent_hash: H256,
 	pub number: u32,
 	state_root: H256,
 	extrinsics_root: H256,
 	extension: Extension,
+}
+
+impl Reply for Header {
+	fn into_response(self) -> warp::reply::Response {
+		warp::reply::json(&self).into_response()
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -328,7 +412,7 @@ impl<'de> Deserialize<'de> for Commitment {
 struct Extension {
 	rows: u16,
 	cols: u16,
-	data_root: Option<H256>,
+	data_root: H256,
 	commitments: Vec<Commitment>,
 	app_lookup: CompactDataLookup,
 }
@@ -361,7 +445,7 @@ impl TryFrom<HeaderExtension> for Extension {
 				Ok(Extension {
 					rows: v1.commitment.rows,
 					cols: v1.commitment.cols,
-					data_root: Some(v1.commitment.data_root),
+					data_root: v1.commitment.data_root,
 					commitments,
 					app_lookup: v1.app_lookup,
 				})
@@ -385,15 +469,16 @@ impl TryFrom<HeaderExtension> for Extension {
 	}
 }
 
-impl TryFrom<(avail_subxt::primitives::Header, Instant)> for PublishMessage {
+impl TryFrom<RpcEvent> for PublishMessage {
 	type Error = anyhow::Error;
 
-	fn try_from(value: (avail_subxt::primitives::Header, Instant)) -> Result<Self, Self::Error> {
-		let (header, _) = value;
-		header
-			.try_into()
-			.map(Box::new)
-			.map(PublishMessage::HeaderVerified)
+	fn try_from(value: RpcEvent) -> Result<Self, Self::Error> {
+		match value {
+			RpcEvent::HeaderUpdate { header, .. } => header
+				.try_into()
+				.map(Box::new)
+				.map(PublishMessage::HeaderVerified),
+		}
 	}
 }
 
@@ -415,25 +500,44 @@ impl TryFrom<BlockVerified> for PublishMessage {
 	}
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(try_from = "String")]
+pub struct FieldsQueryParameter(pub HashSet<DataField>);
+
+impl TryFrom<String> for FieldsQueryParameter {
+	type Error = anyhow::Error;
+
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		value
+			.split(',')
+			.map(|part| format!(r#""{part}""#))
+			.map(|part| serde_json::from_str(&part).context("Cannot deserialize field"))
+			.collect::<anyhow::Result<HashSet<_>>>()
+			.map(FieldsQueryParameter)
+	}
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DataQuery {
+	pub fields: Option<FieldsQueryParameter>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DataResponse {
+	pub block_number: u32,
+	pub data_transactions: Vec<DataTransaction>,
+}
+
+impl Reply for DataResponse {
+	fn into_response(self) -> warp::reply::Response {
+		warp::reply::json(&self).into_response()
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DataMessage {
 	block_number: u32,
 	data_transactions: Vec<DataTransaction>,
-}
-
-impl DataMessage {
-	fn apply_filter(&mut self, fields: &HashSet<DataField>) {
-		if !fields.contains(&DataField::Extrinsic) {
-			for transaction in &mut self.data_transactions {
-				transaction.extrinsic = None
-			}
-		}
-		if !fields.contains(&DataField::Data) && fields.contains(&DataField::Extrinsic) {
-			for transaction in &mut self.data_transactions {
-				transaction.data = None
-			}
-		}
-	}
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -452,6 +556,19 @@ impl TryFrom<Vec<u8>> for DataTransaction {
 			data: decode_app_data(&value)?.map(Base64),
 			extrinsic: Some(Base64(value)),
 		})
+	}
+}
+
+pub fn filter_fields(data_transactions: &mut [DataTransaction], fields: &HashSet<DataField>) {
+	if !fields.contains(&DataField::Extrinsic) {
+		for transaction in data_transactions.iter_mut() {
+			transaction.extrinsic = None
+		}
+	}
+	if !fields.contains(&DataField::Data) && fields.contains(&DataField::Extrinsic) {
+		for transaction in data_transactions.iter_mut() {
+			transaction.data = None
+		}
 	}
 }
 
@@ -483,7 +600,9 @@ impl PublishMessage {
 		match self {
 			PublishMessage::HeaderVerified(_) => (),
 			PublishMessage::ConfidenceAchieved(_) => (),
-			PublishMessage::DataVerified(data) => data.apply_filter(fields),
+			PublishMessage::DataVerified(data) => {
+				filter_fields(&mut data.data_transactions, fields)
+			},
 		}
 	}
 }
@@ -703,13 +822,6 @@ impl From<Error> for String {
 	}
 }
 
-pub fn handle_result(result: Result<impl Reply, impl Reply>) -> impl Reply {
-	match result {
-		Ok(ok) => ok.into_response(),
-		Err(err) => err.into_response(),
-	}
-}
-
 #[derive(Serialize, Deserialize, From)]
 #[serde(tag = "topic", rename_all = "kebab-case")]
 pub enum WsResponse {
@@ -732,11 +844,14 @@ mod tests {
 	use sp_core::H256;
 	use tokio::sync::mpsc;
 
-	use crate::api::v2::types::{Header, HeaderMessage, PublishMessage};
+	use crate::{
+		api::v2::types::{BlockStatus, Header, HeaderMessage, PublishMessage},
+		types::{OptionBlockRange, State},
+	};
 
 	use super::{
-		Base64, ConfidenceMessage, DataField, DataMessage, DataTransaction, Subscription, Topic,
-		WsClients,
+		block_status, Base64, ConfidenceMessage, DataField, DataMessage, DataTransaction,
+		Subscription, Topic, WsClients,
 	};
 
 	fn subscription(topics: Vec<Topic>, fields: Vec<DataField>) -> Subscription {
@@ -758,7 +873,7 @@ mod tests {
 				extension: super::Extension {
 					rows: 1,
 					cols: 1,
-					data_root: None,
+					data_root: H256::default(),
 					commitments: vec![],
 					app_lookup: CompactDataLookup {
 						size: 0,
@@ -854,5 +969,151 @@ mod tests {
 			},
 			_ = tokio::time::sleep(Duration::from_millis(100)) => panic!("Message isn't received"),
 		};
+	}
+
+	#[test]
+	fn block_status_none() {
+		let mut state = State::default();
+		assert_eq!(block_status(&None, &state, 1), None);
+		state.latest = 10;
+		assert_ne!(block_status(&None, &state, 1), None);
+		assert_eq!(block_status(&None, &state, 11), None);
+	}
+
+	#[test]
+	fn block_status_unavailable() {
+		let state = State {
+			latest: 10,
+			..Default::default()
+		};
+		let unavailable = Some(BlockStatus::Unavailable);
+		assert_eq!(block_status(&Some(1), &state, 0), unavailable);
+		assert_eq!(block_status(&Some(10), &state, 0), unavailable);
+		assert_eq!(block_status(&Some(10), &state, 9), unavailable);
+		assert_ne!(block_status(&Some(9), &state, 9), unavailable);
+	}
+
+	#[test]
+	fn block_status_pending() {
+		let state = State {
+			latest: 5,
+			..Default::default()
+		};
+		let pending = Some(BlockStatus::Pending);
+		assert_eq!(block_status(&Some(0), &state, 0), pending);
+		assert_eq!(block_status(&Some(0), &state, 1), pending);
+		assert_eq!(block_status(&Some(0), &state, 4), pending);
+		assert_ne!(block_status(&Some(0), &state, 5), pending);
+	}
+
+	#[test]
+	fn block_status_verifying_header() {
+		let mut state = State::default();
+		let verifying_header = Some(BlockStatus::VerifyingHeader);
+		assert_eq!(block_status(&Some(0), &state, 0), verifying_header);
+		state.latest = 1;
+		assert_eq!(block_status(&Some(0), &state, 1), verifying_header);
+		state.latest = 10;
+		assert_eq!(block_status(&Some(0), &state, 10), verifying_header);
+		state.latest = 11;
+		assert_ne!(block_status(&Some(10), &state, 10), verifying_header);
+
+		let mut state = State {
+			latest: 5,
+			sync_latest: Some(1),
+			..Default::default()
+		};
+		assert_eq!(block_status(&Some(1), &state, 1), verifying_header);
+		state.sync_latest = Some(2);
+		assert_eq!(block_status(&Some(1), &state, 2), verifying_header);
+		assert_ne!(block_status(&Some(1), &state, 3), verifying_header);
+	}
+
+	#[test]
+	fn block_status_verifying_confidence() {
+		let mut state = State::default();
+		let verifying_confidence = Some(BlockStatus::VerifyingConfidence);
+		state.latest = 10;
+		state.header_verified.set(1);
+		assert_eq!(block_status(&None, &state, 1), verifying_confidence);
+		state.confidence_achieved.set(1);
+		state.header_verified.set(5);
+		state.confidence_achieved.set(4);
+		assert_eq!(block_status(&None, &state, 5), verifying_confidence);
+		assert_ne!(block_status(&None, &state, 4), verifying_confidence);
+		assert_ne!(block_status(&None, &state, 6), verifying_confidence);
+
+		let mut state = State {
+			latest: 10,
+			..Default::default()
+		};
+		state.sync_header_verified.set(1);
+		assert_eq!(block_status(&Some(1), &state, 1), verifying_confidence);
+		state.sync_confidence_achieved.set(1);
+		state.sync_header_verified.set(5);
+		state.sync_confidence_achieved.set(4);
+		assert_eq!(block_status(&Some(1), &state, 5), verifying_confidence);
+		assert_ne!(block_status(&Some(1), &state, 4), verifying_confidence);
+		assert_ne!(block_status(&Some(1), &state, 6), verifying_confidence);
+	}
+
+	#[test]
+	fn block_status_verifying_data() {
+		let mut state = State::default();
+		let verifying_data = Some(BlockStatus::VerifyingData);
+		state.latest = 10;
+		state.header_verified.set(1);
+		state.confidence_achieved.set(1);
+		assert_eq!(block_status(&None, &state, 1), verifying_data);
+		state.data_verified.set(1);
+		state.header_verified.set(5);
+		state.confidence_achieved.set(5);
+		state.data_verified.set(4);
+		assert_eq!(block_status(&None, &state, 5), verifying_data);
+		assert_ne!(block_status(&None, &state, 4), verifying_data);
+		assert_ne!(block_status(&None, &state, 6), verifying_data);
+
+		let mut state = State {
+			latest: 10,
+			..Default::default()
+		};
+		state.sync_header_verified.set(1);
+		state.sync_confidence_achieved.set(1);
+		assert_eq!(block_status(&Some(1), &state, 1), verifying_data);
+		state.sync_data_verified.set(1);
+		state.sync_header_verified.set(5);
+		state.sync_confidence_achieved.set(5);
+		state.sync_data_verified.set(4);
+		assert_eq!(block_status(&Some(1), &state, 5), verifying_data);
+		assert_ne!(block_status(&Some(1), &state, 4), verifying_data);
+		assert_ne!(block_status(&Some(1), &state, 6), verifying_data);
+	}
+
+	#[test]
+	fn block_status_finished() {
+		let mut state = State::default();
+		let finished = Some(BlockStatus::Finished);
+		state.latest = 10;
+		state.header_verified.set(1);
+		state.data_verified.set(1);
+		assert_eq!(block_status(&None, &state, 1), finished);
+		state.header_verified.set(5);
+		state.data_verified.set(5);
+		assert_eq!(block_status(&None, &state, 4), finished);
+		assert_eq!(block_status(&None, &state, 5), finished);
+		assert_ne!(block_status(&None, &state, 6), finished);
+
+		let mut state = State {
+			latest: 10,
+			..Default::default()
+		};
+		state.sync_header_verified.set(1);
+		state.sync_data_verified.set(1);
+		assert_eq!(block_status(&Some(1), &state, 1), finished);
+		state.sync_header_verified.set(5);
+		state.sync_data_verified.set(5);
+		assert_eq!(block_status(&Some(1), &state, 4), finished);
+		assert_eq!(block_status(&Some(1), &state, 5), finished);
+		assert_ne!(block_status(&Some(1), &state, 6), finished);
 	}
 }

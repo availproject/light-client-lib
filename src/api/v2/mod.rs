@@ -1,13 +1,13 @@
 use self::{
-	handlers::handle_rejection,
-	types::{PublishMessage, Version, WsClients},
+	handlers::{handle_rejection, log_internal_server_error},
+	types::{DataQuery, PublishMessage, Version, WsClients},
 };
 use crate::{
 	api::v2::types::Topic,
-	rpc::Node,
+	data::{Database, RocksDB},
+	network::rpc::{Client, Node},
 	types::{RuntimeConfig, State},
 };
-use avail_subxt::avail;
 use std::{
 	convert::Infallible,
 	fmt::Display,
@@ -57,6 +57,49 @@ fn status_route(
 		.map(handlers::status)
 }
 
+fn block_route(
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+	warp::path!("v2" / "blocks" / u32)
+		.and(warp::get())
+		.and(warp::any().map(move || config.clone()))
+		.and(warp::any().map(move || state.clone()))
+		.and(warp::any().map(move || db.clone()))
+		.then(handlers::block)
+		.map(log_internal_server_error)
+}
+
+fn block_header_route(
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+	warp::path!("v2" / "blocks" / u32 / "header")
+		.and(warp::get())
+		.and(warp::any().map(move || config.clone()))
+		.and(warp::any().map(move || state.clone()))
+		.and(warp::any().map(move || db.clone()))
+		.then(handlers::block_header)
+		.map(log_internal_server_error)
+}
+
+fn block_data_route(
+	config: RuntimeConfig,
+	state: Arc<Mutex<State>>,
+	db: impl Database,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+	warp::path!("v2" / "blocks" / u32 / "data")
+		.and(warp::get())
+		.and(warp::query::<DataQuery>())
+		.and(warp::any().map(move || config.clone()))
+		.and(warp::any().map(move || state.clone()))
+		.and(warp::any().map(move || db.clone()))
+		.then(handlers::block_data)
+		.map(log_internal_server_error)
+}
+
 fn submit_route(
 	submitter: Option<Arc<impl transactions::Submit + Clone + Send + Sync>>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
@@ -65,7 +108,7 @@ fn submit_route(
 		.and_then(move || optionally(submitter.clone()))
 		.and(warp::body::json())
 		.then(handlers::submit)
-		.map(types::handle_result)
+		.map(log_internal_server_error)
 }
 
 fn subscriptions_route(
@@ -135,14 +178,16 @@ pub async fn publish<T: Clone + TryInto<PublishMessage>>(
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn routes(
 	version: String,
 	network_version: String,
 	node: Node,
 	state: Arc<Mutex<State>>,
 	config: RuntimeConfig,
-	node_client: avail::Client,
+	node_client: Client,
 	ws_clients: WsClients,
+	db: RocksDB,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
 	let version = Version {
 		version,
@@ -162,6 +207,13 @@ pub fn routes(
 
 	version_route(version.clone())
 		.or(status_route(config.clone(), node.clone(), state.clone()))
+		.or(block_route(config.clone(), state.clone(), db.clone()))
+		.or(block_header_route(
+			config.clone(),
+			state.clone(),
+			db.clone(),
+		))
+		.or(block_data_route(config.clone(), state.clone(), db.clone()))
 		.or(subscriptions_route(ws_clients.clone()))
 		.or(submit_route(submitter.clone()))
 		.or(ws_route(
@@ -172,24 +224,34 @@ pub fn routes(
 
 #[cfg(test)]
 mod tests {
-	use super::{submit_route, transactions, types::Transaction};
+	use super::{transactions, types::Transaction};
 	use crate::{
 		api::v2::types::{
 			DataField, ErrorCode, SubmitResponse, Subscription, SubscriptionId, Topic, Version,
 			WsClients, WsError, WsResponse,
 		},
-		rpc::Node,
-		types::{RuntimeConfig, State},
+		data::Database,
+		network::rpc::Node,
+		types::{BlockRange, OptionBlockRange, RuntimeConfig, State},
 	};
 	use async_trait::async_trait;
+	use avail_subxt::{
+		api::runtime_types::avail_core::{
+			data_lookup::compact::CompactDataLookup,
+			header::extension::{v2, HeaderExtension},
+			kate_commitment::v2::KateCommitment,
+		},
+		primitives::Header as DaHeader,
+	};
 	use hyper::StatusCode;
-	use kate_recovery::matrix::Partition;
+	use kate_recovery::{com::AppData, matrix::Partition};
 	use sp_core::H256;
 	use std::{
 		collections::HashSet,
 		str::FromStr,
 		sync::{Arc, Mutex},
 	};
+	use subxt::config::substrate::Digest;
 	use test_case::test_case;
 	use uuid::Uuid;
 
@@ -260,15 +322,15 @@ mod tests {
 		{
 			let mut state = state.lock().unwrap();
 			state.latest = 30;
-			state.set_confidence_achieved(20);
-			state.set_confidence_achieved(29);
-			state.set_data_verified(20);
-			state.set_data_verified(29);
-			state.set_synced(false);
-			state.set_sync_confidence_achieved(10);
-			state.set_sync_confidence_achieved(19);
-			state.set_sync_data_verified(10);
-			state.set_sync_data_verified(18);
+			state.confidence_achieved.set(20);
+			state.confidence_achieved.set(29);
+			state.data_verified.set(20);
+			state.data_verified.set(29);
+			state.synced.replace(false);
+			state.sync_confidence_achieved.set(10);
+			state.sync_confidence_achieved.set(19);
+			state.sync_data_verified.set(10);
+			state.sync_data_verified.set(18);
 		}
 
 		let route = super::status_route(runtime_config, Node::default(), state);
@@ -282,6 +344,256 @@ mod tests {
 			r#"{{"modes":["light","app","partition"],"app_id":1,"genesis_hash":"{GENESIS_HASH}","network":"{NETWORK}","blocks":{{"latest":30,"available":{{"first":20,"last":29}},"app_data":{{"first":20,"last":29}},"historical_sync":{{"synced":false,"available":{{"first":10,"last":19}},"app_data":{{"first":10,"last":18}}}}}},"partition":"1/10"}}"#
 		);
 		assert_eq!(response.body(), &expected);
+	}
+
+	#[test_case(1, 2)]
+	#[test_case(10, 11)]
+	#[test_case(10, 20)]
+	#[tokio::test]
+	async fn block_route_not_found(latest: u32, block_number: u32) {
+		let config = RuntimeConfig::default();
+		let state = Arc::new(Mutex::new(State::default()));
+		{
+			let mut state = state.lock().unwrap();
+			state.latest = latest;
+		}
+		let route = super::block_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path(&format!("/v2/blocks/{block_number}"))
+			.reply(&route)
+			.await;
+
+		assert_eq!(response.status(), StatusCode::NOT_FOUND);
+	}
+
+	#[tokio::test]
+	async fn block_route_finished() {
+		let config = RuntimeConfig::default();
+		let state = Arc::new(Mutex::new(State::default()));
+		{
+			let mut state = state.lock().unwrap();
+			state.latest = 10;
+			state.header_verified.set(10);
+			state.data_verified.set(10);
+		}
+		let route = super::block_route(
+			config,
+			state,
+			MockDatabase {
+				confidence: Some(4),
+				..Default::default()
+			},
+		);
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/10")
+			.reply(&route)
+			.await;
+
+		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response.body(),
+			r#"{"status":"finished","confidence":93.75}"#
+		);
+	}
+
+	#[test_case(0, r#"Block header is not available"#  ; "Block is unavailable")]
+	#[test_case(6, r#"Block header is not available"#  ; "Block is pending")]
+	#[test_case(10, r#"Block header is not available"#  ; "Block is in verifying-header state")]
+	#[tokio::test]
+	async fn block_header_route_bad_request(block_number: u32, expected: &str) {
+		let config = RuntimeConfig {
+			sync_start_block: Some(1),
+			..Default::default()
+		};
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			sync_latest: Some(5),
+			header_verified: Some(BlockRange::init(9)),
+			..Default::default()
+		}));
+
+		let route = super::block_header_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path(&format!("/v2/blocks/{block_number}/header"))
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+		assert_eq!(response.body(), expected);
+	}
+
+	#[tokio::test]
+	async fn block_header_route_not_found() {
+		let config = RuntimeConfig::default();
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			..Default::default()
+		}));
+
+		let route = super::block_header_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/11/header")
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::NOT_FOUND);
+	}
+
+	fn header() -> DaHeader {
+		DaHeader {
+			parent_hash: H256::default(),
+			number: 1,
+			state_root: H256::default(),
+			extrinsics_root: H256::default(),
+			extension: HeaderExtension::V2(v2::HeaderExtension {
+				commitment: KateCommitment::default(),
+				app_lookup: CompactDataLookup {
+					size: 0,
+					index: vec![],
+				},
+			}),
+			digest: Digest { logs: vec![] },
+		}
+	}
+
+	#[tokio::test]
+	async fn block_header_route_ok() {
+		let config = RuntimeConfig::default();
+		let state = Arc::new(Mutex::new(State {
+			latest: 1,
+			header_verified: Some(BlockRange::init(1)),
+			..Default::default()
+		}));
+		let database = MockDatabase {
+			header: Some(header()),
+			..Default::default()
+		};
+		let route = super::block_header_route(config, state, database);
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/1/header")
+			.reply(&route)
+			.await;
+		assert_eq!(
+			response.body(),
+			r#"{"hash":"0xffb84ad27c9d095b0f4790bd168637a6891f962d5a738e2dc7fbdb7a482cce83","parent_hash":"0x0000000000000000000000000000000000000000000000000000000000000000","number":1,"state_root":"0x0000000000000000000000000000000000000000000000000000000000000000","extrinsics_root":"0x0000000000000000000000000000000000000000000000000000000000000000","extension":{"rows":0,"cols":0,"data_root":"0x0000000000000000000000000000000000000000000000000000000000000000","commitments":[],"app_lookup":{"size":0,"index":[]}}}"#
+		);
+	}
+
+	#[test_case(0, r#"Block data is not available"#  ; "Block is unavailable")]
+	#[test_case(6, r#"Block data is not available"#  ; "Block is pending")]
+	#[test_case(8, r#"Block data is not available"#  ; "Block is in verifying-data state")]
+	#[test_case(9, r#"Block data is not available"#  ; "Block is in verifying-confidence state")]
+	#[test_case(10, r#"Block data is not available"#  ; "Block is in verifying-header state")]
+	#[tokio::test]
+	async fn block_data_route_bad_request(block_number: u32, expected: &str) {
+		let config = RuntimeConfig {
+			app_id: Some(1),
+			sync_start_block: Some(1),
+			..Default::default()
+		};
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			sync_latest: Some(5),
+			header_verified: Some(BlockRange::init(10)),
+			confidence_achieved: Some(BlockRange::init(9)),
+			data_verified: Some(BlockRange::init(8)),
+			..Default::default()
+		}));
+
+		let route = super::block_data_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path(&format!("/v2/blocks/{block_number}/data"))
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+		assert_eq!(response.body(), expected);
+	}
+
+	#[tokio::test]
+	async fn block_data_route_not_found() {
+		let config = RuntimeConfig::default();
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			..Default::default()
+		}));
+
+		let route = super::block_data_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/11/data")
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::NOT_FOUND);
+	}
+
+	#[tokio::test]
+	async fn block_data_route_ok_empty() {
+		let config = RuntimeConfig {
+			app_id: Some(1),
+			..Default::default()
+		};
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			header_verified: Some(BlockRange::init(5)),
+			confidence_achieved: Some(BlockRange::init(5)),
+			data_verified: Some(BlockRange::init(5)),
+			..Default::default()
+		}));
+
+		let route = super::block_data_route(config, state, MockDatabase::default());
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/5/data")
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response.body(),
+			r#"{"block_number":5,"data_transactions":[]}"#
+		);
+	}
+
+	#[tokio::test]
+	async fn block_data_route_ok() {
+		let config = RuntimeConfig {
+			app_id: Some(1),
+			..Default::default()
+		};
+		let state = Arc::new(Mutex::new(State {
+			latest: 10,
+			header_verified: Some(BlockRange::init(5)),
+			confidence_achieved: Some(BlockRange::init(5)),
+			data_verified: Some(BlockRange::init(5)),
+			..Default::default()
+		}));
+		let db = MockDatabase {
+			app_data: Some(vec![vec![
+				189, 1, 132, 0, 212, 53, 147, 199, 21, 253, 211, 28, 97, 20, 26, 189, 4, 169, 159,
+				214, 130, 44, 133, 88, 133, 76, 205, 227, 154, 86, 132, 231, 165, 109, 162, 125, 1,
+				50, 12, 43, 176, 19, 42, 23, 73, 70, 223, 198, 180, 103, 34, 60, 246, 184, 49, 140,
+				113, 174, 234, 229, 95, 71, 18, 92, 158, 185, 168, 140, 126, 12, 191, 156, 50, 234,
+				8, 4, 68, 137, 5, 156, 94, 209, 7, 169, 105, 62, 63, 1, 122, 253, 195, 112, 173,
+				239, 21, 73, 163, 240, 106, 109, 131, 0, 4, 0, 4, 29, 1, 20, 116, 101, 115, 116,
+				10,
+			]]),
+			..Default::default()
+		};
+
+		let route = super::block_data_route(config, state, db);
+		let response = warp::test::request()
+			.method("GET")
+			.path("/v2/blocks/5/data")
+			.reply(&route)
+			.await;
+		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response.body(),
+			r#"{"block_number":5,"data_transactions":[{"data":"dGVzdAo=","extrinsic":"vQGEANQ1k8cV/dMcYRQavQSpn9aCLIVYhUzN45pWhOelbaJ9ATIMK7ATKhdJRt/GtGciPPa4MYxxrurlX0cSXJ65qIx+DL+cMuoIBESJBZxe0QepaT4/AXr9w3Ct7xVJo/BqbYMABAAEHQEUdGVzdAo="}]}"#
+		);
 	}
 
 	fn all_topics() -> HashSet<Topic> {
@@ -317,6 +629,27 @@ mod tests {
 
 		fn has_signer(&self) -> bool {
 			self.has_signer
+		}
+	}
+
+	#[derive(Clone, Default)]
+	struct MockDatabase {
+		confidence: Option<u32>,
+		header: Option<DaHeader>,
+		app_data: Option<AppData>,
+	}
+
+	impl Database for MockDatabase {
+		fn get_confidence(&self, _: u32) -> anyhow::Result<Option<u32>> {
+			Ok(self.confidence)
+		}
+
+		fn get_header(&self, _: u32) -> anyhow::Result<Option<DaHeader>> {
+			Ok(self.header.clone())
+		}
+
+		fn get_data(&self, _app_id: u32, _: u32) -> anyhow::Result<Option<AppData>> {
+			Ok(self.app_data.clone())
 		}
 	}
 
@@ -455,15 +788,15 @@ mod tests {
 		{
 			let mut state = test.state.lock().unwrap();
 			state.latest = 30;
-			state.set_confidence_achieved(20);
-			state.set_confidence_achieved(29);
-			state.set_data_verified(20);
-			state.set_data_verified(29);
-			state.set_synced(false);
-			state.set_sync_confidence_achieved(10);
-			state.set_sync_confidence_achieved(19);
-			state.set_sync_data_verified(10);
-			state.set_sync_data_verified(18);
+			state.confidence_achieved.set(20);
+			state.confidence_achieved.set(29);
+			state.data_verified.set(20);
+			state.data_verified.set(29);
+			state.synced.replace(false);
+			state.sync_confidence_achieved.set(10);
+			state.sync_confidence_achieved.set(19);
+			state.sync_data_verified.set(10);
+			state.sync_data_verified.set(18);
 		}
 		let expected = format!(
 			r#"{{"topic":"status","request_id":"363c71fc-90f7-4276-a5b6-bec688bf01e2","message":{{"modes":["light","app","partition"],"app_id":1,"genesis_hash":"{GENESIS_HASH}","network":"{NETWORK}","blocks":{{"latest":30,"available":{{"first":20,"last":29}},"app_data":{{"first":20,"last":29}},"historical_sync":{{"synced":false,"available":{{"first":10,"last":19}},"app_data":{{"first":10,"last":18}}}}}},"partition":"1/10"}}}}"#

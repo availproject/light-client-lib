@@ -1,16 +1,17 @@
 use crate::api::common::{object_to_str, string_to_error_resp_json};
 use crate::api::v2::transactions::{self, AvailSigner, Submit};
 use crate::api::v2::types::Error;
-use crate::consts::EXPECTED_NETWORK_VERSION;
 use crate::data::{
 	get_confidence_achieved_message_from_db, get_data_verified_message_from_db,
 	get_header_verified_message_from_db,
 };
-use crate::light_client_commons::init_db;
-use crate::rpc;
-use crate::types::{AvailSecretKey, RuntimeConfig};
 
-use std::sync::Arc;
+use crate::light_client_commons::init_db;
+use crate::network::rpc;
+// use crate::rpc;
+use crate::types::{AvailSecretKey, RuntimeConfig, State};
+
+use std::sync::{Arc, Mutex};
 use tracing::error;
 
 use crate::api::v2::types::{Status, Transaction};
@@ -22,11 +23,10 @@ pub async unsafe fn submit_transaction(
 	private_key: String,
 ) -> String {
 	let avail_secret = AvailSecretKey::try_from(private_key);
+	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 
-	let rpc_client_result =
-		rpc::connect_to_the_full_node(&cfg.full_node_ws, None, EXPECTED_NETWORK_VERSION).await;
-
-	let rpc_client: subxt::OnlineClient<avail_subxt::AvailConfig> = rpc_client_result.unwrap().0;
+	let state = Arc::new(Mutex::new(State::default()));
+	let (rpc_client, _, _) = rpc::init(db, state, &cfg.full_node_ws);
 
 	match avail_secret {
 		Ok(avail_secret) => {
@@ -50,12 +50,13 @@ pub async unsafe fn submit_transaction(
 }
 
 pub async fn get_startus_v2(cfg: RuntimeConfig) -> String {
-	let rpc_client_result =
-		rpc::connect_to_the_full_node(&cfg.clone().full_node_ws, None, EXPECTED_NETWORK_VERSION)
-			.await;
-	let rpc_client = rpc_client_result.unwrap().1;
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
-	let status = Status::new_from_db(&cfg, &rpc_client, db);
+
+	let state = Arc::new(Mutex::new(State::default()));
+	let (rpc_client, _, _) = rpc::init(db.clone(), state, &cfg.full_node_ws);
+	let node = rpc_client.get_connected_node().await.unwrap();
+
+	let status = Status::new_from_db(&cfg, &node, db);
 	return object_to_str(&status);
 }
 
