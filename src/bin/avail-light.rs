@@ -1,10 +1,13 @@
 #![doc = include_str!("../../README.md")]
 
-use std::path::Path;
+use std::{fs, path::Path};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 
-use avail_light::{light_client_commons::run, types::RuntimeConfig};
+use avail_light::{
+	light_client_commons::run,
+	types::{CliOpts, RuntimeConfig},
+};
 use clap::Parser;
 use tokio::sync::mpsc::channel;
 use tracing::{error, info};
@@ -14,15 +17,6 @@ const CLIENT_ROLE: &str = if cfg!(feature = "crawl") {
 } else {
 	"lightnode"
 };
-
-/// Light Client for Avail Blockchain
-// #[derive(Parser)]
-// #[command(version)]
-// struct CliOpts {
-// 	/// Path to the yaml configuration file
-// 	#[arg(short, long, value_name = "FILE", default_value_t = String::from("config.yaml"))]
-// 	config: String,
-// }
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
