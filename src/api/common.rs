@@ -28,6 +28,13 @@ pub fn str_ptr_to_config(cfg: *mut u8) -> RuntimeConfig {
 	};
 }
 
+pub fn ptr_to_str(ptr: *mut u8) -> String {
+	let c_str: CString = unsafe { CString::from_raw(ptr) };
+
+	let r_str = c_str.to_str().unwrap();
+	r_str.to_string()
+}
+
 pub fn object_to_str<T>(value: &T) -> String
 where
 	T: ?Sized + Serialize,

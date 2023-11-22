@@ -1,4 +1,10 @@
-use crate::{api::common::str_ptr_to_config, light_client_commons::run};
+use crate::{
+	api::{
+		common::{ptr_to_str, str_ptr_to_config},
+		v2::types::DataQuery,
+	},
+	light_client_commons::run,
+};
 use std::{ffi::CString, fmt::Display};
 
 use tokio::sync::broadcast;
@@ -11,8 +17,8 @@ use crate::{
 };
 
 use super::common::{
-	get_confidence_message_list, get_header_verified_message_list, get_startus_v2,
-	submit_transaction,
+	get_block, get_block_data, get_block_header, get_confidence_message_list,
+	get_header_verified_message_list, get_startus_v2, submit_transaction,
 };
 
 #[allow(non_snake_case)]
@@ -86,6 +92,37 @@ pub async extern "C" fn getConfidenceMessageList(cfg: *mut u8) -> *mut u8 {
 pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
 	let cfg = str_ptr_to_config(cfg);
 	get_header_verified_message_list(cfg).as_mut_ptr()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getBlock(cfg: *mut u8) -> *mut u8 {
+	let cfg = str_ptr_to_config(cfg);
+	get_block(cfg).await.as_mut_ptr()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getBlockHeader(block: u32, cfg: *mut u8) -> *mut u8 {
+	let cfg = str_ptr_to_config(cfg);
+	get_block_header(cfg, block).as_mut_ptr()
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getBlockData(
+	block_number: u32,
+	data: bool,
+	extrinsics: bool,
+	cfg: *mut u8,
+) -> *mut u8 {
+	let cfg: crate::types::RuntimeConfig = str_ptr_to_config(cfg);
+	get_block_data(cfg, block_number, data, extrinsics)
+		.await
+		.as_mut_ptr()
 }
 
 pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(

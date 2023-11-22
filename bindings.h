@@ -55,3 +55,13 @@ JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getH
   (JNIEnv *, jclass, jstring);
 JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getDataVerifiedMessageList
   (JNIEnv *, jclass, jstring);
+
+
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getBlock
+  (JNIEnv *, jclass, jstring);
+
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getBlockHeader
+  (JNIEnv *, jclass, jstring, jint);
+
+JNIEXPORT jstring JNICALL Java_com_example_availlibrary_AvailLightClientLib_getBlockData
+  (JNIEnv *, jclass, jstring, jint, jbool, jbool);

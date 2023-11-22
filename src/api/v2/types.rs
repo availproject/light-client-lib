@@ -329,6 +329,17 @@ pub struct Block {
 	pub confidence: Option<f64>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct BlockAndConfidence {
+	pub block: u32,
+	pub confidence: Option<f64>,
+}
+impl BlockAndConfidence {
+	pub fn new(block: u32, confidence: Option<f64>) -> Self {
+		Self { block, confidence }
+	}
+}
+
 impl Block {
 	pub fn new(status: BlockStatus, confidence: Option<f64>) -> Self {
 		Self { status, confidence }

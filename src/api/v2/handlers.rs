@@ -1,21 +1,22 @@
 use super::{
 	transactions,
 	types::{
-		block_status, filter_fields, Block, BlockStatus, DataQuery, DataResponse, DataTransaction,
-		Error, FieldsQueryParameter, Header, Status, SubmitResponse, Subscription, SubscriptionId,
-		Transaction, Version, WsClients,
+		block_status, filter_fields, Block, BlockAndConfidence, BlockStatus, DataQuery,
+		DataResponse, DataTransaction, Error, FieldsQueryParameter, Header, Status, SubmitResponse,
+		Subscription, SubscriptionId, Transaction, Version, WsClients,
 	},
 	ws,
 };
 use crate::{
 	api::v2::types::{ErrorCode, InternalServerError},
-	data::Database,
+	data::{get_confidence_from_db, get_latest_block, Database},
 	network::rpc::Node,
 	types::{RuntimeConfig, State},
 	utils::calculate_confidence,
 };
 use anyhow::anyhow;
 use hyper::StatusCode;
+use rocksdb::DB;
 use std::{
 	convert::Infallible,
 	sync::{Arc, Mutex},
@@ -114,6 +115,22 @@ pub async fn block(
 	Ok(Block::new(block_status, confidence))
 }
 
+pub async fn block_from_db(
+	db_impl: impl Database,
+	db: Arc<DB>,
+) -> Result<BlockAndConfidence, Error> {
+	let latest_block = get_latest_block(db.clone())
+		.unwrap_or_default()
+		.unwrap_or_default();
+
+	let confidence = db_impl
+		.get_confidence(latest_block)
+		.map_err(Error::internal_server_error)?
+		.map(calculate_confidence);
+
+	Ok(BlockAndConfidence::new(latest_block, confidence))
+}
+
 pub async fn block_header(
 	block_number: u32,
 	config: RuntimeConfig,
@@ -137,6 +154,24 @@ pub async fn block_header(
 		.and_then(|header| header.ok_or_else(|| anyhow!("Header not found")))
 		.and_then(|header| header.try_into())
 		.map_err(Error::internal_server_error)
+}
+pub fn block_header_from_db(
+	block_number: u32,
+	db_impl: impl Database,
+	db: Arc<DB>,
+) -> Result<Header, Error> {
+	let Some(block_confidence) = get_confidence_from_db(db, block_number).unwrap_or_default()
+	else {
+		return Err(Error::not_found());
+	};
+	if block_confidence < 90 {
+		return Err(Error::not_found());
+	}
+	return db_impl
+		.get_header(block_number)
+		.and_then(|header| header.ok_or_else(|| anyhow!("Header not found")))
+		.and_then(|header| header.try_into())
+		.map_err(Error::internal_server_error);
 }
 
 pub async fn block_data(
@@ -187,6 +222,50 @@ pub async fn block_data(
 	})
 }
 
+pub async fn block_data_from_db(
+	config: RuntimeConfig,
+	block_number: u32,
+	query: DataQuery,
+	db_impl: impl Database,
+	db: Arc<DB>,
+) -> Result<DataResponse, Error> {
+	let Some(app_id) = config.app_id else {
+		return Err(Error::not_found());
+	};
+
+	let Some(block_confidence) = get_confidence_from_db(db, block_number).unwrap_or_default()
+	else {
+		return Err(Error::not_found());
+	};
+	if block_confidence < 90 {
+		return Err(Error::not_found());
+	}
+	let data = db_impl
+		.get_data(app_id, block_number)
+		.map_err(Error::internal_server_error)?;
+
+	let Some(data) = data else {
+		return Ok(DataResponse {
+			block_number,
+			data_transactions: vec![],
+		});
+	};
+
+	let mut data_transactions: Vec<DataTransaction> = data
+		.into_iter()
+		.map(DataTransaction::try_from)
+		.collect::<anyhow::Result<_>>()
+		.map_err(Error::internal_server_error)?;
+
+	if let Some(FieldsQueryParameter(fields)) = &query.fields {
+		filter_fields(&mut data_transactions, fields);
+	}
+
+	Ok(DataResponse {
+		block_number,
+		data_transactions,
+	})
+}
 pub async fn handle_rejection(error: Rejection) -> Result<impl Reply, Rejection> {
 	if error.find::<InternalServerError>().is_some() {
 		return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
