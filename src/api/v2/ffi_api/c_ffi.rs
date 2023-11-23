@@ -100,7 +100,7 @@ pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
 pub async extern "C" fn getBlock(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
 	let response = get_block(cfg).await;
-	respinse.as_str().as_ptr()
+	response.as_str().as_ptr()
 }
 
 #[allow(non_snake_case)]
