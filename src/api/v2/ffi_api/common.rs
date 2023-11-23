@@ -98,15 +98,8 @@ pub fn get_block_header(cfg: RuntimeConfig, block_number: u32) -> String {
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	match block_header_from_db(block_number, db_impl, db) {
-		Ok(header) => {
-			// panic!("{}", header.number);
-			serde_json::to_string(&header).unwrap()
-		},
-		Err(err) => {
-			// panic!("{}", err.description);
-
-			string_to_error_resp_json(err.message.to_string())
-		},
+		Ok(header) => serde_json::to_string_pretty(&header).unwrap(),
+		Err(err) => string_to_error_resp_json(err.message.to_string()),
 	}
 }
 

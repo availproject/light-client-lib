@@ -99,15 +99,17 @@ pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
 #[tokio::main]
 pub async extern "C" fn getBlock(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-	get_block(cfg).await.as_ptr()
+	let response = get_block(cfg).await;
+	respinse.as_str().as_ptr()
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async extern "C" fn getBlockHeader(block: u32, cfg: *mut u8) -> *mut u8 {
+pub async extern "C" fn getBlockHeader(block: u32, cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-	get_block_header(cfg, block).as_mut_ptr()
+	let response = get_block_header(cfg, block);
+	response.as_str().as_ptr()
 }
 
 #[allow(non_snake_case)]
