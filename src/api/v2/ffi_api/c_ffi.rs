@@ -97,9 +97,9 @@ pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
-pub async extern "C" fn getBlock(cfg: *mut u8) -> *mut u8 {
+pub async extern "C" fn getBlock(cfg: *mut u8) -> *const u8 {
 	let cfg = str_ptr_to_config(cfg);
-	get_block(cfg).await.as_mut_ptr()
+	get_block(cfg).await.as_ptr()
 }
 
 #[allow(non_snake_case)]
@@ -118,11 +118,10 @@ pub async extern "C" fn getBlockData(
 	data: bool,
 	extrinsics: bool,
 	cfg: *mut u8,
-) -> *mut u8 {
+) -> *const u8 {
 	let cfg: crate::types::RuntimeConfig = str_ptr_to_config(cfg);
-	get_block_data(cfg, block_number, data, extrinsics)
-		.await
-		.as_mut_ptr()
+	let response = get_block_data(cfg, block_number, data, extrinsics).await;
+	response.as_str().as_ptr()
 }
 
 pub async fn call_callbacks<T: Clone + TryInto<PublishMessage>>(

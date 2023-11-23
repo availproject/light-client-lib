@@ -48,7 +48,7 @@ where
 	serde_json::to_string(value).unwrap()
 }
 pub fn string_to_error_resp_json(value: String) -> String {
-	serde_json::to_string(&ErrorResponse { message: value }).unwrap()
+	serde_json::to_string_pretty(&ErrorResponse { message: value }).unwrap()
 }
 
 pub fn java_env_to_str(mut env: JNIEnv, input: JString) -> String {

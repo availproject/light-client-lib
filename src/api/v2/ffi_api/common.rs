@@ -98,8 +98,15 @@ pub fn get_block_header(cfg: RuntimeConfig, block_number: u32) -> String {
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	match block_header_from_db(block_number, db_impl, db) {
-		Ok(header) => serde_json::to_string(&header).unwrap(),
-		Err(err) => string_to_error_resp_json(err.message.to_string()),
+		Ok(header) => {
+			// panic!("{}", header.number);
+			serde_json::to_string(&header).unwrap()
+		},
+		Err(err) => {
+			// panic!("{}", err.description);
+
+			string_to_error_resp_json(err.message.to_string())
+		},
 	}
 }
 
@@ -122,8 +129,14 @@ pub async fn get_block_data(
 		fields: Some(FieldsQueryParameter(hash_set)),
 	};
 	match block_data_from_db(cfg, block_number, query, db_impl, db).await {
-		Ok(header) => serde_json::to_string(&header).unwrap(),
-		Err(err) => string_to_error_resp_json(err.message.to_string()),
+		Ok(data) => {
+			// panic!("{}", serde_json::to_string_pretty(&data).unwrap());
+			serde_json::to_string_pretty(&data).unwrap()
+		},
+		Err(err) => {
+			panic!("{}", string_to_error_resp_json(err.message.to_string()));
+			string_to_error_resp_json(err.message.to_string())
+		},
 	}
 }
 
@@ -131,7 +144,11 @@ pub async fn get_block(cfg: RuntimeConfig) -> String {
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	match block_from_db(db_impl, db).await {
-		Ok(header) => serde_json::to_string(&header).unwrap(),
+		Ok(header) => {
+			let mut message = serde_json::to_string(&header).unwrap();
+			message.push_str("\0");
+			message
+		},
 		Err(err) => string_to_error_resp_json(err.message.to_string()),
 	}
 }

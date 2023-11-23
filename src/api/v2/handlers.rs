@@ -237,9 +237,7 @@ pub async fn block_data_from_db(
 	else {
 		return Err(Error::not_found());
 	};
-	if block_confidence < 90 {
-		return Err(Error::not_found());
-	}
+
 	let data = db_impl
 		.get_data(app_id, block_number)
 		.map_err(Error::internal_server_error)?;
