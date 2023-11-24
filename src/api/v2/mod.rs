@@ -693,7 +693,7 @@ mod tests {
 			.await;
 		assert_eq!(response.status(), StatusCode::OK);
 		let response: SubmitResponse = serde_json::from_slice(response.body()).unwrap();
-		let _ = serde_json::to_string(&response).unwrap();
+		let _ = serde_json::to_string_pretty(&response).unwrap();
 	}
 
 	#[tokio::test]

@@ -39,13 +39,13 @@ pub fn object_to_str<T>(value: &T) -> String
 where
 	T: ?Sized + Serialize,
 {
-	serde_json::to_string(value).unwrap()
+	serde_json::to_string_pretty(value).unwrap()
 }
 pub fn object_to_ptr<T>(value: &T) -> String
 where
 	T: ?Sized + Serialize,
 {
-	serde_json::to_string(value).unwrap()
+	serde_json::to_string_pretty(value).unwrap()
 }
 pub fn string_to_error_resp_json(value: String) -> String {
 	serde_json::to_string_pretty(&ErrorResponse { message: value }).unwrap()

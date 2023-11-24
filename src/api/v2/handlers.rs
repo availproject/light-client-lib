@@ -160,13 +160,10 @@ pub fn block_header_from_db(
 	db_impl: impl Database,
 	db: Arc<DB>,
 ) -> Result<Header, Error> {
-	let Some(block_confidence) = get_confidence_from_db(db, block_number).unwrap_or_default()
-	else {
+	let Some(_) = get_confidence_from_db(db, block_number).unwrap_or_default() else {
 		return Err(Error::not_found());
 	};
-	if block_confidence < 90 {
-		return Err(Error::not_found());
-	}
+
 	return db_impl
 		.get_header(block_number)
 		.and_then(|header| header.ok_or_else(|| anyhow!("Header not found")))
@@ -233,8 +230,7 @@ pub async fn block_data_from_db(
 		return Err(Error::not_found());
 	};
 
-	let Some(block_confidence) = get_confidence_from_db(db, block_number).unwrap_or_default()
-	else {
+	let Some(_) = get_confidence_from_db(db, block_number).unwrap_or_default() else {
 		return Err(Error::not_found());
 	};
 

@@ -621,7 +621,7 @@ impl PublishMessage {
 impl TryFrom<PublishMessage> for Message {
 	type Error = anyhow::Error;
 	fn try_from(value: PublishMessage) -> Result<Self, Self::Error> {
-		serde_json::to_string(&value)
+		serde_json::to_string_pretty(&value)
 			.map(ws::Message::text)
 			.context("Cannot serialize publish message")
 	}
@@ -829,7 +829,7 @@ impl Reply for Error {
 
 impl From<Error> for String {
 	fn from(error: Error) -> Self {
-		serde_json::to_string(&error).expect("Error is serializable")
+		serde_json::to_string_pretty(&error).expect("Error is serializable")
 	}
 }
 

@@ -133,7 +133,7 @@ pub fn store_block_header_in_db(db: Arc<DB>, block_number: u32, header: &DaHeade
 	db.put_cf(
 		&handle,
 		block_number.to_be_bytes(),
-		serde_json::to_string(header)?.as_bytes(),
+		serde_json::to_string_pretty(header)?.as_bytes(),
 	)
 	.context("Failed to write block header")
 }
@@ -293,24 +293,24 @@ pub fn store_publish_message_in_db(
 				message_list = serde_json::from_str(existing_message.as_str()).unwrap();
 				message_list
 					.message_list
-					.push(serde_json::to_string(&message).unwrap());
+					.push(serde_json::to_string_pretty(&message).unwrap());
 			},
 			None => {
 				message_list = PublishMessageList {
-					message_list: vec![serde_json::to_string(&message).unwrap()],
+					message_list: vec![serde_json::to_string_pretty(&message).unwrap()],
 				};
 			},
 		},
 		Err(_) => {
 			message_list = PublishMessageList {
-				message_list: vec![serde_json::to_string(&message).unwrap()],
+				message_list: vec![serde_json::to_string_pretty(&message).unwrap()],
 			};
 		},
 	};
 	db.put_cf(
 		&handle,
 		key.as_bytes(),
-		serde_json::to_string(&message_list).unwrap(),
+		serde_json::to_string_pretty(&message_list).unwrap(),
 	)
 	.context("Failed to write confidence achieved message")
 }

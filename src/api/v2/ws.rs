@@ -45,7 +45,7 @@ pub async fn connect(
 	}));
 
 	fn send<T: Serialize>(sender: Sender, message: T) -> anyhow::Result<()> {
-		let ws_message = serde_json::to_string(&message)
+		let ws_message = serde_json::to_string_pretty(&message)
 			.map(ws::Message::text)
 			.context("Failed to serialize message")?;
 
