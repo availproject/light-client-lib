@@ -7,6 +7,8 @@ use crate::data::{
 	get_header_verified_message_from_db,
 };
 
+use std::path::Path;
+
 use crate::light_client_commons::init_db;
 use crate::network::rpc;
 // use crate::rpc;
@@ -24,6 +26,13 @@ pub async unsafe fn submit_transaction(
 	transaction: Transaction,
 	private_key: String,
 ) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let avail_secret = AvailSecretKey::try_from(private_key);
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 
@@ -52,6 +61,13 @@ pub async unsafe fn submit_transaction(
 }
 
 pub async fn get_startus_v2(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 
 	let state = Arc::new(Mutex::new(State::default()));
@@ -63,6 +79,13 @@ pub async fn get_startus_v2(cfg: RuntimeConfig) -> String {
 }
 
 pub fn get_confidence_message_list(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	match get_confidence_achieved_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
@@ -74,6 +97,13 @@ pub fn get_confidence_message_list(cfg: RuntimeConfig) -> String {
 }
 
 pub fn get_data_verified_message_list(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	match get_data_verified_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
@@ -84,6 +114,13 @@ pub fn get_data_verified_message_list(cfg: RuntimeConfig) -> String {
 	}
 }
 pub fn get_header_verified_message_list(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	match get_header_verified_message_from_db(db) {
 		Ok(message_list_option) => match message_list_option {
@@ -95,6 +132,13 @@ pub fn get_header_verified_message_list(cfg: RuntimeConfig) -> String {
 }
 
 pub fn get_block_header(cfg: RuntimeConfig, block_number: u32) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	match block_header_from_db(block_number, db_impl, db) {
@@ -109,6 +153,13 @@ pub async fn get_block_data(
 	data: bool,
 	extrinsic: bool,
 ) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	let mut hash_set: HashSet<DataField> = HashSet::new();
@@ -131,10 +182,21 @@ pub async fn get_block_data(
 }
 
 pub async fn get_block(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
+
 	let db = init_db(&cfg.clone().avail_path, true).unwrap();
 	let db_impl = crate::data::RocksDB(db.clone());
 	match block_from_db(db_impl, db).await {
 		Ok(header) => serde_json::to_string_pretty(&header).unwrap(),
 		Err(err) => string_to_error_resp_json(err.message.to_string()),
 	}
+}
+
+fn is_db_initialized(cfg: RuntimeConfig) -> bool {
+	Path::new(cfg.avail_path.as_str()).exists()
 }

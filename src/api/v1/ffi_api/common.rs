@@ -7,6 +7,7 @@ use crate::{
 	light_client_commons::{init_db, run},
 	types::RuntimeConfig,
 };
+use std::path::Path;
 
 use crate::{
 	api::v1::handlers::{confidence_from_db, latest_block_from_db, status_from_db},
@@ -27,6 +28,12 @@ pub async fn start_light_node(cfg: RuntimeConfig) -> String {
 }
 
 pub fn latest_block(cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
@@ -38,6 +45,12 @@ pub fn latest_block(cfg: RuntimeConfig) -> String {
 }
 
 pub fn status(app_id: u32, cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
@@ -49,6 +62,12 @@ pub fn status(app_id: u32, cfg: RuntimeConfig) -> String {
 }
 
 pub fn confidence(block: u32, cfg: RuntimeConfig) -> String {
+	let db_check = is_db_initialized(cfg.clone());
+	if !db_check {
+		string_to_error_resp_json(
+			"Please initialize light client or wait for db to be initialized".to_string(),
+		);
+	}
 	let db_result = init_db(&cfg.avail_path, true);
 	match db_result {
 		Ok(db) => {
@@ -70,4 +89,8 @@ where
 		ClientResponse::InProcess => string_to_error_resp_json("In process".to_owned()),
 		ClientResponse::Error(err) => string_to_error_resp_json(err.to_string()),
 	}
+}
+
+fn is_db_initialized(cfg: RuntimeConfig) -> bool {
+	Path::new(cfg.avail_path.as_str()).exists()
 }

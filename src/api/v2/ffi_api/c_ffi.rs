@@ -1,20 +1,13 @@
-use crate::{
-	api::{
-		common::{ptr_to_str, str_ptr_to_config},
-		v2::types::DataQuery,
-	},
-	light_client_commons::run,
-};
-use std::{ffi::CString, fmt::Display};
-
-use tokio::sync::broadcast;
-use tokio::sync::mpsc::channel;
-use tracing::error;
+use crate::{api::common::str_ptr_to_config, light_client_commons::run};
+use std::{ffi::CString, fmt::Display, path::Path};
 
 use crate::{
 	api::v2::types::{PublishMessage, Topic, Transaction},
 	light_client_commons::FfiCallback,
 };
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::channel;
+use tracing::error;
 
 use super::common::{
 	get_block, get_block_data, get_block_header, get_confidence_message_list,

@@ -12,12 +12,6 @@ use clap::Parser;
 use tokio::sync::mpsc::channel;
 use tracing::{error, info};
 
-const CLIENT_ROLE: &str = if cfg!(feature = "crawl") {
-	"crawler"
-} else {
-	"lightnode"
-};
-
 #[tokio::main]
 pub async fn main() -> Result<()> {
 	let (error_sender, mut error_receiver) = channel::<anyhow::Error>(1);
