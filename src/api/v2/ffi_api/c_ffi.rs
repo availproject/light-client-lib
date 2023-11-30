@@ -1,5 +1,5 @@
 use crate::{api::common::str_ptr_to_config, light_client_commons::run};
-use std::{ffi::CString, fmt::Display, path::Path};
+use std::{ffi::CString, fmt::Display};
 
 use crate::{
 	api::v2::types::{PublishMessage, Topic, Transaction},
@@ -11,9 +11,12 @@ use tracing::error;
 
 use super::common::{
 	get_block, get_block_data, get_block_header, get_confidence_message_list,
-	get_header_verified_message_list, get_startus_v2, submit_transaction,
+	get_data_verified_message_list, get_header_verified_message_list, get_startus_v2,
+	submit_transaction,
 };
+// This ffi version of v2 APIs. since there is no way to mimic websockets, all the events that are emitted by websocket are called using callbacks.
 
+//start light client with callbacks that can be passed down and used for listening to confidence_achived, header_verified and data_verified.
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -40,6 +43,7 @@ pub async unsafe extern "C" fn startLightNodeWithCallback(
 		return "".as_ptr();
 	};
 }
+//this endpoint can be used to submit a transaction.
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -62,7 +66,7 @@ pub async unsafe extern "C" fn submitTransaction(
 	.await;
 	response.as_mut_ptr()
 }
-
+//this can be used to get status of the light client.
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -71,6 +75,7 @@ pub async extern "C" fn getStatusV2(cfg: *mut u8) -> *mut u8 {
 	get_startus_v2(cfg).await.as_mut_ptr()
 }
 
+//this returns a list of all the confidence achieved events that were emitted
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -78,7 +83,7 @@ pub async extern "C" fn getConfidenceMessageList(cfg: *mut u8) -> *mut u8 {
 	let cfg = str_ptr_to_config(cfg);
 	get_confidence_message_list(cfg).as_mut_ptr()
 }
-
+//this returns a list of all the header verified events that were emitted
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -86,7 +91,16 @@ pub async extern "C" fn getHeaderVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
 	let cfg = str_ptr_to_config(cfg);
 	get_header_verified_message_list(cfg).as_mut_ptr()
 }
+//this returns a list of all the data verified events that were emitted
+#[allow(non_snake_case)]
+#[no_mangle]
+#[tokio::main]
+pub async extern "C" fn getDataVerifiedMessageList(cfg: *mut u8) -> *mut u8 {
+	let cfg = str_ptr_to_config(cfg);
+	get_data_verified_message_list(cfg).as_mut_ptr()
+}
 
+//get latest block
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -96,6 +110,7 @@ pub async extern "C" fn getBlock(cfg: *mut u8) -> *const u8 {
 	response.as_str().as_ptr()
 }
 
+//get block header
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -105,6 +120,7 @@ pub async extern "C" fn getBlockHeader(block: u32, cfg: *mut u8) -> *const u8 {
 	response.as_str().as_ptr()
 }
 
+//get block data
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]

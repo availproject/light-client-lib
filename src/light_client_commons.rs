@@ -308,7 +308,6 @@ pub async fn run(
 			));
 		}
 		let (_, data_reciever_for_db_dump) = broadcast::channel::<(u32, AppData)>(1 << 7);
-
 		tokio::task::spawn(store_publish_messages(
 			db.clone(),
 			api::v2::types::Topic::DataVerified,

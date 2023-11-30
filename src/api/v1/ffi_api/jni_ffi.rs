@@ -7,10 +7,11 @@ use jni::{
 };
 
 use super::common;
-
+// These functions are to be used to call light client through a JVM environment.
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
+//starts light client
 pub async unsafe extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_startNode<
 	'local,
 >(
@@ -27,6 +28,7 @@ pub async unsafe extern "system" fn Java_com_example_availlibrary_AvailLightClie
 
 #[allow(non_snake_case)]
 #[no_mangle]
+//gives latest block
 pub extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_latestBlock<'local>(
 	env: JNIEnv<'local>,
 	_: JClass<'local>,
@@ -40,6 +42,7 @@ pub extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_latestB
 
 #[allow(non_snake_case)]
 #[no_mangle]
+//gives status of a specific app-id
 pub extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_status<'other_local>(
 	env: JNIEnv<'other_local>,
 	_: JClass<'other_local>,
@@ -54,6 +57,7 @@ pub extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_status<
 
 #[allow(non_snake_case)]
 #[no_mangle]
+//gives confidence of a specific block number
 pub extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_confidence<
 	'other_local_1,
 >(

@@ -20,6 +20,9 @@ use super::common::{
 	submit_transaction,
 };
 
+//this file contains all the function implementations for jvm environments
+
+//Submit a transaction
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -46,6 +49,7 @@ pub async unsafe extern "system" fn Java_com_example_availlibrary_AvailLightClie
 	output
 }
 
+//get status of light client.
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -65,6 +69,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	output
 }
 
+//this returns a list of all the confidence achieved events that were emitted
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -84,6 +89,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	output
 }
 
+//this returns a list of all the header verified events that were emitted
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -103,6 +109,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	output
 }
 
+//this returns a list of all the data verified events that were emitted
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -122,6 +129,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	output
 }
 
+//starts a node where all the events are being listed in db
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -148,6 +156,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_s
 	output
 }
 
+//get latest block
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -164,7 +173,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 		.expect("Couldn't create java string!");
 	output
 }
-
+//get block header
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
@@ -184,6 +193,7 @@ pub async extern "system" fn Java_com_example_availlibrary_AvailLightClientLib_g
 	output
 }
 
+//get block data
 #[allow(non_snake_case)]
 #[no_mangle]
 #[tokio::main]
