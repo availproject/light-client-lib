@@ -15,7 +15,7 @@ use crate::{
 	types::{RuntimeConfig, State},
 };
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 use rocksdb::DB;
 use std::{
 	net::SocketAddr,
@@ -43,11 +43,9 @@ fn health_route() -> impl Filter<Extract = impl Reply, Error = warp::Rejection> 
 		.map(|_| warp::reply::with_status("", warp::http::StatusCode::OK))
 }
 
-
-
 impl Server {
 	/// Runs HTTP server
-	pub async fn run(self) {
+	pub async fn run(self) -> Result<()> {
 		let RuntimeConfig {
 			http_server_host: host,
 			http_server_port: port,
@@ -74,10 +72,11 @@ impl Server {
 
 		let routes = health_route().or(v1_api).or(v2_api).with(cors);
 
-		let addr = SocketAddr::from_str(format!("{host}:{port}").as_str())
-			.context("Unable to parse host address from config")
-			.unwrap();
-		info!("RPC running on http://{host}:{port}");
+		let addr = SocketAddr::from_str(&format!("{}:{}", host, port))
+			.with_context(|| "Unable to parse host address from config")?;
+		info!("RPC running on http://{}:{}", host, port);
 		warp::serve(routes).run(addr).await;
+
+		Ok(())
 	}
 }
