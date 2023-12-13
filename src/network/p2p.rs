@@ -1,3 +1,5 @@
+use std::time::Duration; // Add missing import for Duration
+
 use anyhow::{Context, Result};
 use futures::future::Either;
 use kad_mem_store::{MemoryStore, MemoryStoreConfig};
@@ -19,6 +21,7 @@ use libp2p::{
 };
 use multihash::{self, Hasher};
 use tokio::sync::mpsc::{self};
+use tokio::time::timeout; // Add missing import for timeout
 use tracing::info;
 
 #[cfg(feature = "network-analysis")]
@@ -98,8 +101,10 @@ pub fn init(
 
 		let options = ResolverOpts::default();
 		// let do_steps = || -> Result<(), Error> {
-		TokioDnsConfig::custom(transport, cfg, options)?.boxed()
-		// TokioDnsConfig::system(transport)?.boxed()
+		let transport = TokioDnsConfig::custom(transport, cfg, options)?.boxed();
+		// Add timeout for DNS lookup
+		let transport = timeout(Duration::from_secs(5), transport); // Set timeout to 5 seconds
+		transport
 	};
 
 	// Initialize Network Behaviour Struct
