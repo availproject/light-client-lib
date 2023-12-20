@@ -7,8 +7,9 @@ use kate_recovery::{
 	matrix::{Dimensions, Position},
 	proof,
 };
-use std::sync::{mpsc::channel, Arc};
+use std::sync::Arc;
 use tracing::error;
+use crossbeam_channel::{bounded, Sender};
 
 /// Verifies proofs for given block, cells and commitments
 pub fn verify(
@@ -20,18 +21,16 @@ pub fn verify(
 ) -> Result<(Vec<Position>, Vec<Position>), proof::Error> {
 	let cpus = num_cpus::get();
 	let pool = threadpool::ThreadPool::new(cpus);
-	let (tx, rx) = channel::<(Position, Result<bool, proof::Error>)>();
+	let (tx, rx) = bounded::<(Position, Result<bool, proof::Error>)>(cells.len());
 
-	for cell in cells {
+	for cell in cells.iter_mut() {
 		let commitment = commitments[cell.position.row as usize];
-
 		let tx = tx.clone();
-		let cell = cell.clone();
 		let public_parameters = public_parameters.clone();
 
 		pool.execute(move || {
-			let result = proof::verify(&public_parameters, dimensions, &commitment, &cell);
-			if let Err(error) = tx.clone().send((cell.position, result)) {
+			let result = proof::verify(&public_parameters, dimensions, &commitment, cell);
+			if let Err(error) = tx.send((cell.position, result)) {
 				error!(
 					"{} {} {error}",
 					block_num, "Failed to send proof verified message"

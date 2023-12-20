@@ -70,7 +70,7 @@ pub async fn run(
 			Err(error) => {
 				error!("Header is not valid: {error}");
 				continue;
-			},
+			}
 		};
 
 		if let Some(seconds) = delay.sleep_duration(received_at) {
@@ -95,42 +95,52 @@ pub async fn run(
 				.collect::<Vec<_>>();
 
 			let total = positions.len();
-			let fetched = network_client
-				.fetch_cells_from_dht(block_number, &positions)
-				.await
-				.0
-				.len();
-
-			let success_rate = fetched as f64 / total as f64;
-			info!(
-				block_number,
-				success_rate, total, fetched, "Fetched block cells",
-			);
-			let _ = metrics
-				.record(MetricValue::CrawlCellsSuccessRate(success_rate))
-				.await;
+			let fetch_result = network_client.fetch_cells_from_dht(block_number, &positions).await;
+			match fetch_result {
+				Ok((fetched_cells, _)) => {
+					let fetched = fetched_cells.len();
+					let success_rate = fetched as f64 / total as f64;
+					info!(
+						block_number,
+						success_rate,
+						total,
+						fetched,
+						"Fetched block cells",
+					);
+					let _ = metrics
+						.record(MetricValue::CrawlCellsSuccessRate(success_rate))
+						.await;
+				}
+				Err(error) => {
+					error!("Failed to fetch cells from DHT: {}", error);
+				}
+			}
 		}
 
-		if matches!(mode, CrawlMode::Cells | CrawlMode::Both) {
+		if matches!(mode, CrawlMode::Rows | CrawlMode::Both) {
 			let dimensions = block.dimensions;
 			let rows: Vec<u32> = (0..dimensions.extended_rows()).step_by(2).collect();
 			let total = rows.len();
-			let fetched = network_client
-				.fetch_rows_from_dht(block_number, dimensions, &rows)
-				.await
-				.iter()
-				.step_by(2)
-				.flatten()
-				.count();
-
-			let success_rate = fetched as f64 / total as f64;
-			info!(
-				block_number,
-				success_rate, total, fetched, "Fetched block rows"
-			);
-			let _ = metrics
-				.record(MetricValue::CrawlRowsSuccessRate(success_rate))
-				.await;
+			let fetch_result = network_client.fetch_rows_from_dht(block_number, dimensions, &rows).await;
+			match fetch_result {
+				Ok(fetched_rows) => {
+					let fetched = fetched_rows.iter().step_by(2).flatten().count();
+					let success_rate = fetched as f64 / total as f64;
+					info!(
+						block_number,
+						success_rate,
+						total,
+						fetched,
+						"Fetched block rows"
+					);
+					let _ = metrics
+						.record(MetricValue::CrawlRowsSuccessRate(success_rate))
+						.await;
+				}
+				Err(error) => {
+					error!("Failed to fetch rows from DHT: {}", error);
+				}
+			}
 		}
 
 		let elapsed = start.elapsed();
